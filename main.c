@@ -5,11 +5,18 @@
 extern int our_code_starts_here() asm("our_code_starts_here");
 extern int print(int val) asm("print");
 
-int print(int val) {
-  // COPY YOUR IMPLEMENTATION FROM COBRA
-  return val;
+int print(int val)
+{
+    if ((val & BOOL_FLAG) == 0)
+        printf("%d\n", val >> 1);
+    else if (val == 0xFFFFFFFF)
+        printf("true\n");
+    else if (val == 0x7FFFFFFF)
+        printf("false\n");
+    else
+        printf("Unknown value: %#010x\n", val);
+    return val;
 }
-
 /*
 
 COPY YOUR IMPLEMENTATION FROM COBRA
