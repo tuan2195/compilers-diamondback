@@ -180,15 +180,15 @@ let anf (p : tag program) : unit aprogram =
          let (body_ans, body_setup) = helpC (ELet(rest, body, pos)) in
          (body_ans, exp_setup @ [(bind, exp_ans)] @ body_setup)
       | EApp(funname, args, _) ->
-         let (argsList, setupList) =
+         let (args_list, setup_list) =
              List.fold_left
-             (fun (prevAns, prevSetup) expr ->
+             (fun (prev_ans, prev_setup) expr ->
                  let (ans, setup) = helpI expr in
-                 (ans::prevAns, setup@prevSetup)
+                 (ans::prev_ans, setup@prev_setup)
              )
              ([], [])
              args in
-         (CApp(funname, argsList, ()), setupList)
+         (CApp(funname, args_list, ()), setup_list)
          (*failwith "Implement ANF conversion for function calls"*)
       | _ -> let (imm, setup) = helpI e in (CImmExpr imm, setup)
     and helpI (e : tag expr) : (unit immexpr * (string * unit cexpr) list) =
@@ -225,8 +225,6 @@ let anf (p : tag program) : unit aprogram =
     in
     helpP p
 ;;
-
-
 
 let r_to_asm (r : reg) : string =
   match r with
@@ -362,19 +360,22 @@ let blockTrueFalse labelTrue labelDone = [
 ]
 
 let rec compile_fun (name : string) args env : instruction list =
-    let compile_arg args = compile_imm args env in
-    let push_list = List.flatten (List.map
-        (fun a -> [ IMov(Reg(EAX), a) ])
-        (List.map compile_arg args)) in
-    push_list @ [
+    let compile_arg a = compile_imm a env in
+    let num_args = List.length args in
+    List.rev_map (fun a -> IPush(a)) (List.map compile_arg args) @ [
         ICall(name);
-        (* TODO: Stack cleanup *)
+        IAdd(Reg(ESP), Const(num_args*word_size));
     ]
-(*and compile_aexpr (e : tag aexpr) (si : int) (env : arg envt) (num_args : int) (is_tail : bool) : instruction list =*)
 and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
     match e with
-    | ALet(name, exp, body, _) -> failwith "Compile aexpr not yet implemented"
-    | ACExpr(e) -> compile_cexpr e si env num_args is_tail
+    | ALet(name, exp, body, _) ->
+        let setup = compile_cexpr exp si env num_args is_tail in
+        let arg = RegOffset(si, EBP) in
+        let new_env = (name, arg)::env in
+        let main = compile_aexpr body (si+1) new_env num_args is_tail in
+        setup @ [ IMov(arg, Reg(EAX)) ] @ main
+    | ACExpr(e) ->
+        compile_cexpr e si env num_args is_tail
 and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
     match e with
     | CIf (cnd, thn, els, t) ->
@@ -506,12 +507,22 @@ and compile_imm e env =
   | ImmNum(n, _) -> Const((n lsl 1))
   | ImmBool(true, _) -> const_true
   | ImmBool(false, _) -> const_false
-  | ImmId(x, _) -> (find env x)
+  | ImmId(x, _) -> find env x
 
 let compile_decl (d : tag adecl) : instruction list =
     match d with
-    | ADFun(name, arg_list, expr, _) ->
-    failwith "Compile decl not yet implemented"
+    | ADFun(name, args_list, body, _) ->
+    let (env, _) = List.fold_left
+        (fun (ls, offset) name -> ((name, RegOffset(offset, EBP))::ls, offset-1))
+        ([], -1)
+        (args_list)
+    in [
+        ILineComment(sprintf "Function %s(%s): %d arguments"
+                      name (String.concat ", " args_list) (List.length args_list));
+        ILabel(name);
+    ] @ compile_aexpr body 0 env (List.length args_list) false @ [
+        IRet;
+    ]
 
 (* You may find some of these helpers useful *)
 let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
@@ -533,7 +544,12 @@ let rec find_dup (l : 'a list) : 'a option =
       if find_one xs x then Some(x) else find_dup xs
 
 let compile_prog anfed =
-  failwith "Compiling programs not implemented yet"
+    let to_string ls = List.fold_left (fun s i -> sprintf "%s\n%s" s (i_to_asm i)) "" ls in
+    match anfed with
+    | AProgram(declList, expr, _) ->
+        let funcs = List.flatten(List.map (compile_decl) (declList)) in
+        let main = compile_aexpr expr 1 [] false false in
+        to_string (funcs @ main)
 
 let compile_to_string prog : (exn list, string) either =
   let errors = well_formed prog in
