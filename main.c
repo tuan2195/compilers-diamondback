@@ -5,6 +5,10 @@
 extern int our_code_starts_here() asm("our_code_starts_here");
 extern int print(int val) asm("print");
 
+const int BOOL_TRUE  = 0xFFFFFFFF;
+const int BOOL_FALSE = 0x7FFFFFFF;
+const int BOOL_FLAG  = 0x1;
+
 int print(int val)
 {
     if ((val & BOOL_FLAG) == 0)
@@ -17,6 +21,17 @@ int print(int val)
         printf("Unknown value: %#010x\n", val);
     return val;
 }
+
+void error(int err)
+{
+    if (err == 0xA)
+        printf("Error: Arithmetic operation expects a number\n");
+    else if (err == 0xB)
+        printf("Error: Logic/if operation expects a boolean\n");
+    else if (err == 0xC)
+        printf("Error: Integer overflow detected\n");
+}
+
 /*
 
 COPY YOUR IMPLEMENTATION FROM COBRA

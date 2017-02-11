@@ -331,7 +331,7 @@ let count_vars e =
   and helpC e =
     match e with
     | CIf(_, t, f, _) -> max (helpA t) (helpA f)
-    | _ -> 0
+    | _ -> 1
   in helpA e
 
 let rec replicate x i =
@@ -370,7 +370,7 @@ and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
     match e with
     | ALet(name, exp, body, _) ->
         let setup = compile_cexpr exp si env num_args is_tail in
-        let arg = RegOffset(si, EBP) in
+        let arg = RegOffset(~-si*word_size, EBP) in
         let new_env = (name, arg)::env in
         let main = compile_aexpr body (si+1) new_env num_args is_tail in
         setup @ [ IMov(arg, Reg(EAX)) ] @ main
@@ -513,8 +513,8 @@ let compile_decl (d : tag adecl) : instruction list =
     match d with
     | ADFun(name, args_list, body, _) ->
     let (env, _) = List.fold_left
-        (fun (ls, offset) name -> ((name, RegOffset(offset, EBP))::ls, offset-1))
-        ([], -1)
+        (fun (ls, offset) name -> ((name, RegOffset(offset*word_size, EBP))::ls, offset+1))
+        ([], 1)
         (args_list)
     in [
         ILineComment(sprintf "Function %s(%s): %d arguments"
@@ -543,23 +543,82 @@ let rec find_dup (l : 'a list) : 'a option =
     | x::xs ->
       if find_one xs x then Some(x) else find_dup xs
 
-let compile_prog anfed =
+let rec optimize (ls : instruction list) =
+    match ls with
+    | [] -> []
+    | (IMov(RegOffset(o1, r1), Reg(EAX)))::(IMov(Reg(EAX), RegOffset(o2, r2)))::rest ->
+        if o1 = o2 && r1 = r2 then
+            (List.hd ls)::optimize rest
+        else
+            (List.nth ls 0)::(List.nth ls 1)::optimize rest
+    | what::rest ->
+        what::optimize rest
+
+let compile_prog (anfed : tag aprogram) =
+    match anfed with | AProgram(declList, expr, _) ->
+    let stack_size = word_size * (count_vars expr) in
     let to_string ls = List.fold_left (fun s i -> sprintf "%s\n%s" s (i_to_asm i)) "" ls in
-    match anfed with
-    | AProgram(declList, expr, _) ->
-        let funcs = List.flatten(List.map (compile_decl) (declList)) in
-        let main = compile_aexpr expr 1 [] false false in
-        to_string (funcs @ main)
+    let header =
+"section .text
+extern error
+extern print
+global our_code_starts_here" in
+    let prelude = [
+        ILabel("our_code_starts_here");
+        (* Stack setup: Save EBP and ESP *)
+        ILineComment("Stack setup: Save EBP and ESP");
+        IPush(Reg(EBP));
+        IMov(Reg(EBP), Reg(ESP));
+        (* Stack setup: Push zeroes on stack *)
+        IMov(Reg(EAX), Reg(ESP));
+        ISub(Reg(EAX), Const(stack_size));
+        ILabel("stack_setup_push_loop");
+        IPush(Sized(DWORD_PTR, Const(0)));
+        ICmp(Reg(EAX), Reg(ESP));
+        IJne("stack_setup_push_loop");
+        ILineComment("Program starts here");
+    ] in
+    let postlude = [
+        (* Cleanup stack here *)
+        ILineComment("Cleanup starts here");
+        ILabel("cleanup_return");
+        IAdd(Reg(ESP), Const(stack_size));
+        IPop(Reg(EBP));
+        IRet;
+        (* Error handling labels *)
+        ILineComment("Error handling labels");
+        ILabel("error_arith_not_num");
+        IPush(HexConst(0xA));
+        ICall("error");
+        IJmp("cleanup_error");
+        ILabel("error_logic_not_bool");
+        IPush(HexConst(0xB));
+        ICall("error");
+        IJmp("cleanup_error");
+        ILabel("error_int_overflow");
+        IPush(HexConst(0xC));
+        ICall("error");
+        IJmp("cleanup_error");
+        (* Cleanup error calls here *)
+        ILabel("cleanup_error");
+        IPop(Reg(EAX));
+        IMov(Reg(EAX), Const(0));
+        IJmp("cleanup_return");
+    ] in
+    let funcs = List.flatten(List.map (compile_decl) (declList)) in
+    let main = compile_aexpr expr 1 [] false false in
+    let instruction_list = optimize (funcs @ prelude @ main @ postlude) in
+    header ^ (to_string instruction_list)
 
 let compile_to_string prog : (exn list, string) either =
-  let errors = well_formed prog in
-  match errors with
-  | [] ->
+  (*let errors = well_formed prog in*)
+  (*match errors with*)
+  (*| [] ->*)
      let tagged : tag program = tag prog in
      let anfed : tag aprogram = atag (anf tagged) in
      (* printf "Prog:\n%s\n" (ast_of_expr prog); *)
      (* printf "Tagged:\n%s\n" (format_expr tagged string_of_int); *)
      (* printf "ANFed/tagged:\n%s\n" (format_expr anfed string_of_int); *)
      Right(compile_prog anfed)
-  | _ -> Left(errors)
+  (*| _ -> Left(errors)*)
 
