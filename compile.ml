@@ -21,7 +21,7 @@ and is_imm e =
   | _ -> false
 ;;
 
-let const_true = HexConst (0xFFFFFFFF)
+let const_true = HexConst(0xFFFFFFFF)
 let const_false = HexConst(0x7FFFFFFF)
 let bool_mask = HexConst(0x80000000)
 let tag_as_bool = HexConst(0x00000001)
@@ -339,6 +339,11 @@ let rec replicate x i =
   else x :: (replicate x (i - 1))
 
 (* Commonly used assembly blocks/macros *)
+let arg_to_const arg = match arg with
+    | Const(x) | HexConst(x) | Sized(_, Const(x)) | Sized(_, HexConst(x))
+        -> Some(x)
+    | _ -> None
+
 let checkBool arg = [
     IMov(Reg(EAX), arg);
     ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
@@ -351,18 +356,18 @@ let checkNum arg = [
     IJnz("error_arith_not_num");
 ]
 
-let blockTrueFalse labelTrue labelDone = [
+let blockTrueFalse label_true label_done = [
     IMov(Reg(EAX), const_false);
-    IJmp(labelDone);
-    ILabel(labelTrue);
+    IJmp(label_done);
+    ILabel(label_true);
     IMov(Reg(EAX), const_true);
-    ILabel(labelDone);
+    ILabel(label_done);
 ]
 
 let rec compile_fun (name : string) args env : instruction list =
     let compile_arg a = compile_imm a env in
     let num_args = List.length args in
-    List.rev_map (fun a -> IPush(a)) (List.map compile_arg args) @ [
+        List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map compile_arg args) @ [
         ICall(name);
         IAdd(Reg(ESP), Const(num_args*word_size));
     ]
@@ -379,28 +384,28 @@ and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
 and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
     match e with
     | CIf (cnd, thn, els, t) ->
-        let labelFalse = sprintf "if_false_%d" t in
-        let labelTrue = sprintf "if_true_%d" t in
-        let labelDone = sprintf "if_done_%d" t in
+        let label_false = sprintf "if_false_%d" t in
+        let label_true = sprintf "if_true_%d" t in
+        let label_done = sprintf "if_done_%d" t in
         let argCond = compile_imm cnd env in
         checkBool argCond @ [
             (*IMov(Reg(EAX), argCond);*)
             ICmp(Reg(EAX), const_true);
-            IJe(labelTrue);
+            IJe(label_true);
             ICmp(Reg(EAX), const_false);
-            IJe(labelFalse);
+            IJe(label_false);
             IJmp("error_logic_not_bool");
-            ILabel(labelTrue);
+            ILabel(label_true);
         ] @ compile_aexpr thn si env num_args is_tail @ [
-            IJmp(labelDone);
-            ILabel(labelFalse);
+            IJmp(label_done);
+            ILabel(label_false);
         ] @ compile_aexpr els si env num_args is_tail @ [
-            ILabel(labelDone);
+            ILabel(label_done);
         ]
     | CPrim1(op, e, t) ->
         let arg = compile_imm e env in
-        let labelTrue = sprintf "isboolnum_true_%d" t in
-        let labelDone = sprintf "isboolnum_done_%d" t in
+        let label_true = sprintf "isboolnum_true_%d" t in
+        let label_done = sprintf "isboolnum_done_%d" t in
         (match op with
         | Add1 ->
             checkNum arg @ [
@@ -423,13 +428,13 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         | IsBool -> [
             IMov(Reg(EAX), arg);
             ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-            IJnz(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJnz(label_true);
+        ] @ blockTrueFalse label_true label_done
         | IsNum -> [
             IMov(Reg(EAX), arg);
             ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-            IJz(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJz(label_true);
+        ] @ blockTrueFalse label_true label_done
         | Not ->
             checkBool arg @ [
             IXor(Reg(EAX), bool_mask);
@@ -437,8 +442,8 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         | PrintStack -> failwith "PrintStack not implemented"
         )
     | CPrim2(op, e1, e2, t) ->
-        let labelTrue = sprintf "compare_true_%d" t in
-        let labelDone = sprintf "compare_done_%d" t in
+        let label_true = sprintf "compare_true_%d" t in
+        let label_done = sprintf "compare_done_%d" t in
         let arg1 = compile_imm e1 env in
         let arg2 = compile_imm e2 env in
         let prelude = match op with
@@ -475,28 +480,28 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         | Greater -> [
             (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
-            IJg(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJg(label_true);
+        ] @ blockTrueFalse label_true label_done
         | GreaterEq -> [
             (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
-            IJge(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJge(label_true);
+        ] @ blockTrueFalse label_true label_done
         | Less -> [
             (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
-            IJl(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJl(label_true);
+        ] @ blockTrueFalse label_true label_done
         | LessEq -> [
             (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
-            IJle(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJle(label_true);
+        ] @ blockTrueFalse label_true label_done
         | Eq -> [
             (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
-            IJe(labelTrue);
-        ] @ blockTrueFalse labelTrue labelDone
+            IJe(label_true);
+        ] @ blockTrueFalse label_true label_done
         )
     | CApp(name, args, t) ->
         compile_fun name args env
@@ -509,20 +514,41 @@ and compile_imm e env =
   | ImmBool(false, _) -> const_false
   | ImmId(x, _) -> find env x
 
+let func_stack_setup func_name stack_size = [
+    ILabel(func_name);
+    ILineComment(sprintf "Function %s: Stack setup" func_name);
+    IPush(Reg(EBP));
+    IMov(Reg(EBP), Reg(ESP));
+    (* Stack setup: Push zeroes on stack *)
+    IMov(Reg(EAX), Reg(ESP));
+    ISub(Reg(EAX), Const(stack_size));
+    ILabel(sprintf "%s_stack_setup_push_loop" func_name);
+    IPush(Const(0));
+    ICmp(Reg(EAX), Reg(ESP));
+    IJne(sprintf "%s_stack_setup_push_loop" func_name);
+    ILineComment(sprintf "Function %s starts here" func_name);
+]
+
+let func_stack_cleanup func_name stack_size = [
+    ILineComment(sprintf "Function %s: Stack cleanup" func_name);
+    ILabel(sprintf "%s_stack_cleanup_return" func_name);
+    IAdd(Reg(ESP), Const(stack_size));
+    IPop(Reg(EBP));
+    IRet;
+]
+
 let compile_decl (d : tag adecl) : instruction list =
     match d with
-    | ADFun(name, args_list, body, _) ->
+    | ADFun(func_name, args_list, body, _) ->
+    let stack_size = word_size * count_vars body in
+    let label_loop = sprintf "%s_stack_setup_push_loop" func_name in
     let (env, _) = List.fold_left
         (fun (ls, offset) name -> ((name, RegOffset(offset*word_size, EBP))::ls, offset+1))
-        ([], 1)
+        ([], 2) (* Starts at 2 because first arg is at ebp-8 *)
         (args_list)
-    in [
-        ILineComment(sprintf "Function %s(%s): %d arguments"
-                      name (String.concat ", " args_list) (List.length args_list));
-        ILabel(name);
-    ] @ compile_aexpr body 0 env (List.length args_list) false @ [
-        IRet;
-    ]
+    in  func_stack_setup func_name stack_size @
+        compile_aexpr body 1 env (List.length args_list) false @
+        func_stack_cleanup func_name stack_size
 
 (* You may find some of these helpers useful *)
 let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
@@ -556,6 +582,7 @@ let rec optimize (ls : instruction list) =
 
 let compile_prog (anfed : tag aprogram) =
     match anfed with | AProgram(declList, expr, _) ->
+    let func_name = "our_code_starts_here" in
     let stack_size = word_size * (count_vars expr) in
     let to_string ls = List.fold_left (fun s i -> sprintf "%s\n%s" s (i_to_asm i)) "" ls in
     let header =
@@ -563,21 +590,8 @@ let compile_prog (anfed : tag aprogram) =
 extern error
 extern print
 global our_code_starts_here" in
-    let prelude = [
-        ILabel("our_code_starts_here");
-        (* Stack setup: Save EBP and ESP *)
-        ILineComment("Stack setup: Save EBP and ESP");
-        IPush(Reg(EBP));
-        IMov(Reg(EBP), Reg(ESP));
-        (* Stack setup: Push zeroes on stack *)
-        IMov(Reg(EAX), Reg(ESP));
-        ISub(Reg(EAX), Const(stack_size));
-        ILabel("stack_setup_push_loop");
-        IPush(Sized(DWORD_PTR, Const(0)));
-        ICmp(Reg(EAX), Reg(ESP));
-        IJne("stack_setup_push_loop");
-        ILineComment("Program starts here");
-    ] in
+    let setup = func_stack_setup func_name stack_size in
+    let cleanup = func_stack_cleanup func_name stack_size in
     let postlude = [
         (* Cleanup stack here *)
         ILineComment("Cleanup starts here");
@@ -603,11 +617,11 @@ global our_code_starts_here" in
         ILabel("cleanup_error");
         IPop(Reg(EAX));
         IMov(Reg(EAX), Const(0));
-        IJmp("cleanup_return");
+        IJmp(sprintf "%s_stack_cleanup_return" func_name);
     ] in
     let funcs = List.flatten(List.map (compile_decl) (declList)) in
     let main = compile_aexpr expr 1 [] false false in
-    let instruction_list = optimize (funcs @ prelude @ main @ postlude) in
+    let instruction_list = optimize (funcs @ setup @ main @ cleanup @ postlude) in
     header ^ (to_string instruction_list)
 
 let compile_to_string prog : (exn list, string) either =

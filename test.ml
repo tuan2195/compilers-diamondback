@@ -37,6 +37,17 @@ let tests =
   t "m5" "5 + 0" "5";
   t "m6" "5 * 0" "0";
 
+  t "f1" "def f(x,y): (x+y) f(1,2)" "3";
+  t "f2" "def f(x,y): (x-y) f(4,1)" "3";
+  t "f3" "def f(x,y,z): (x*y+z)
+          def g(x,y): (x+y)
+          def h(x,y): (2*x+y)
+          f(g(3,4),g(2,2),g(5,6))" "39";
+  t "f4" "def f(x,y,z): (x*y+z)
+          def g(x,y): (x+y)
+          def h(x,y): (2*x+y)
+          f(g(3,4),g(2,2),h(5,9))" "47";
+
   t "m7" "let x = 5 in x" "5";
   t "m8" "let x = 5, y = 6 in x + y" "11";
   t "m9" "let x = 5 + 6 in x" "11";
