@@ -338,7 +338,11 @@ let rec replicate x i =
   if i = 0 then []
   else x :: (replicate x (i - 1))
 
-(* Commonly used assembly blocks/macros *)
+(* Commonly used macros *)
+let func_begin_label name = sprintf "%s_begin_tail" name
+let func_setup_label name = sprintf "%s_stack_setup_push_loop" name
+let func_cleanup_label name = sprintf "%s_stack_cleanup_return" name
+
 let arg_to_const arg = match arg with
     | Const(x) | HexConst(x) | Sized(_, Const(x)) | Sized(_, HexConst(x))
         -> Some(x)
@@ -364,23 +368,27 @@ let blockTrueFalse label_true label_done = [
     ILabel(label_done);
 ]
 
-let rec compile_fun (name : string) args env : instruction list =
-    let compile_arg a = compile_imm a env in
-    let num_args = List.length args in
+let rec compile_fun (name : string) args env is_tail : instruction list =
+    let compile_arg a = compile_imm a env in (*function macro*)
+    if is_tail then
+        let copy_arg i a = [ IMov(Reg(EAX), a); IMov(RegOffset(word_size*(i+2), EBP), Reg(EAX)); ] in
+        List.flatten(List.mapi copy_arg (List.rev_map compile_arg args))
+        @ [ IJmp(func_begin_label name) ]
+    else
         List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map compile_arg args) @ [
         ICall(name);
-        IAdd(Reg(ESP), Const(num_args*word_size));
+        IAdd(Reg(ESP), Const((List.length args)*word_size));
     ]
 and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
     match e with
     | ALet(name, exp, body, _) ->
-        let setup = compile_cexpr exp si env num_args is_tail in
+        let setup = compile_cexpr exp si env num_args false in
         let arg = RegOffset(~-si*word_size, EBP) in
         let new_env = (name, arg)::env in
-        let main = compile_aexpr body (si+1) new_env num_args is_tail in
+        let main = compile_aexpr body (si+1) new_env num_args true in
         setup @ [ IMov(arg, Reg(EAX)) ] @ main
     | ACExpr(e) ->
-        compile_cexpr e si env num_args is_tail
+        compile_cexpr e si env num_args true
 and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
     match e with
     | CIf (cnd, thn, els, t) ->
@@ -396,10 +404,10 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
             IJe(label_false);
             IJmp("error_logic_not_bool");
             ILabel(label_true);
-        ] @ compile_aexpr thn si env num_args is_tail @ [
+        ] @ compile_aexpr thn si env num_args true @ [
             IJmp(label_done);
             ILabel(label_false);
-        ] @ compile_aexpr els si env num_args is_tail @ [
+        ] @ compile_aexpr els si env num_args true @ [
             ILabel(label_done);
         ]
     | CPrim1(op, e, t) ->
@@ -504,7 +512,7 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         ] @ blockTrueFalse label_true label_done
         )
     | CApp(name, args, t) ->
-        compile_fun name args env
+        compile_fun name args env (is_tail && (num_args = List.length args))
     | CImmExpr(e) ->
         [ IMov(Reg(EAX), compile_imm e env) ]
 and compile_imm e env =
@@ -522,16 +530,17 @@ let func_stack_setup func_name stack_size = [
     (* Stack setup: Push zeroes on stack *)
     IMov(Reg(EAX), Reg(ESP));
     ISub(Reg(EAX), Const(stack_size));
-    ILabel(sprintf "%s_stack_setup_push_loop" func_name);
+    ILabel(func_setup_label func_name);
     IPush(Const(0));
     ICmp(Reg(EAX), Reg(ESP));
-    IJne(sprintf "%s_stack_setup_push_loop" func_name);
+    IJne(func_setup_label func_name);
+    ILabel(func_begin_label func_name);
     ILineComment(sprintf "Function %s starts here" func_name);
 ]
 
 let func_stack_cleanup func_name stack_size = [
     ILineComment(sprintf "Function %s: Stack cleanup" func_name);
-    ILabel(sprintf "%s_stack_cleanup_return" func_name);
+    ILabel(func_cleanup_label func_name);
     IAdd(Reg(ESP), Const(stack_size));
     IPop(Reg(EBP));
     IRet;
@@ -541,13 +550,12 @@ let compile_decl (d : tag adecl) : instruction list =
     match d with
     | ADFun(func_name, args_list, body, _) ->
     let stack_size = word_size * count_vars body in
-    let label_loop = sprintf "%s_stack_setup_push_loop" func_name in
     let (env, _) = List.fold_left
         (fun (ls, offset) name -> ((name, RegOffset(offset*word_size, EBP))::ls, offset+1))
         ([], 2) (* Starts at 2 because first arg is at ebp-8 *)
         (args_list)
     in  func_stack_setup func_name stack_size @
-        compile_aexpr body 1 env (List.length args_list) false @
+        compile_aexpr body 1 env (List.length args_list) true @
         func_stack_cleanup func_name stack_size
 
 (* You may find some of these helpers useful *)
@@ -593,12 +601,6 @@ global our_code_starts_here" in
     let setup = func_stack_setup func_name stack_size in
     let cleanup = func_stack_cleanup func_name stack_size in
     let postlude = [
-        (* Cleanup stack here *)
-        ILineComment("Cleanup starts here");
-        ILabel("cleanup_return");
-        IAdd(Reg(ESP), Const(stack_size));
-        IPop(Reg(EBP));
-        IRet;
         (* Error handling labels *)
         ILineComment("Error handling labels");
         ILabel("error_arith_not_num");
@@ -620,7 +622,7 @@ global our_code_starts_here" in
         IJmp(sprintf "%s_stack_cleanup_return" func_name);
     ] in
     let funcs = List.flatten(List.map (compile_decl) (declList)) in
-    let main = compile_aexpr expr 1 [] false false in
+    let main = compile_aexpr expr 1 [] 0 false in
     let instruction_list = optimize (funcs @ setup @ main @ cleanup @ postlude) in
     header ^ (to_string instruction_list)
 
