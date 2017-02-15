@@ -63,6 +63,65 @@ let rec remove_from_list (l : 'a list) (a : 'a) =
     | x::xs ->
         if a = x then xs else x::remove_from_list xs a
 
+let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
+    let rec wf_E e decl_list env (* other parameters may be needed here *) =
+        match e with
+        | ELet(bind_list, body, pos) ->
+            let vars_list  = (List.map (fun b -> let (n, _, p) = b in (n, p)) bind_list) in
+            let vars_excns = dup_env vars_list in
+            let expr_list  = List.map (fun b -> let (_, e, _) = b in e) bind_list in
+            let expr_excns = List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list) in
+            let body_excns = wf_E body decl_list ((List.map fst vars_list)@env) in
+            vars_excns @ expr_excns @ body_excns
+        | EPrim1(_, expr, pos) ->
+            wf_E expr decl_list env
+        | EPrim2(_, expr1, expr2, pos) ->
+            wf_E expr1 decl_list env @
+            wf_E expr2 decl_list env
+        | EIf(cond, thn, els, pos) ->
+            wf_E cond decl_list env @
+            wf_E thn decl_list env @
+            wf_E els decl_list env
+        | ENumber(x, pos) ->
+            if x > 1073741823 || x < -1073741824 then
+                [Overflow(x, pos)]
+            else
+                []
+        | EBool(_, _) ->
+            []
+        | EId(id, pos) ->
+            if find_one env id then
+                []
+            else
+                [UnboundId(id, pos)]
+        | EApp(func, expr_list, pos) ->
+            match (find_decl decl_list func) with
+            | None ->
+                [UnboundFun(func, pos)]
+            | Some(func) ->
+                let DFun(_, var_list, _, _) = func in
+                if (List.length var_list != List.length expr_list) then
+                    [Arity(List.length var_list, List.length expr_list, pos)]
+                else
+                    List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list)
+    and wf_D d decl_list =
+        let DFun(name, env, body, pos) = d in
+        let var_excns = dup_env env in var_excns
+    and dup_env env =
+        match env with
+        | [] -> []
+        | x::xs -> (match find_instance xs x with
+            | None -> dup_env xs
+            | Some(dup) ->
+                let new_env = remove_from_list xs x in
+                DuplicateId(fst x, snd dup, snd x)::dup_env xs
+        )
+    in match p with
+    | Program(decls, body, _) ->
+        let decl_exns = List.flatten(List.map (fun d -> wf_D d decls) decls) in
+        decl_exns @ wf_E body decls []
+;
+
 type tag = int
 let tag (p : 'a program) : tag program =
   let next = ref 0 in
