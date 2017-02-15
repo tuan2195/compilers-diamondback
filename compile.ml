@@ -34,13 +34,23 @@ let err_OVERFLOW       = 4
 
 let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
   let rec wf_E e (* other parameters may be needed here *) =
-    failwith "Implement well-formedness checking for expressions"
+    match e with
+    | EBool _ -> () 
+    | ENumber _ -> ()
+    | EId(x, _) -> ()
+    | ELet (_, _, _) -> ()
+    | EPrim1 (_, _, _) -> ()
+    | EPrim2 (_, _, _, _) -> ()
+    | EIf (_, _, _, _) -> ()
+    | EApp (_, _, _)  -> ()
   and wf_D d (* other parameters may be needed here *) =
-    failwith "Implement well-formedness checking for definitions"
-  in
-  match p with
-  | Program(decls, body, _) ->
-     failwith "Implement well-formedness checking for programs"
+    match d with
+    | DFun(name, args, body, _) -> ()
+  and wf_P (p : (Lexing.position * Lexing.position) program) : exn list =
+    match p with 
+    | Program(decls, body, _) ->
+      List.fold_right wf_D decls, wf_E body, []
+  in wf_P p
 ;;
 
 type tag = int
