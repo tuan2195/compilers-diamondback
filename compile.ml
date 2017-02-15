@@ -32,16 +32,36 @@ let err_LOGIC_NOT_BOOL = 2
 let err_IF_NOT_BOOL    = 3
 let err_OVERFLOW       = 4
 
-let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
-  let rec wf_E e (* other parameters may be needed here *) =
-    failwith "Implement well-formedness checking for expressions"
-  and wf_D d (* other parameters may be needed here *) =
-    failwith "Implement well-formedness checking for definitions"
-  in
-  match p with
-  | Program(decls, body, _) ->
-     failwith "Implement well-formedness checking for programs"
-;;
+(* You may find some of these helpers useful *)
+let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
+  match ds with
+    | [] -> None
+    | (DFun(fname, _, _, _) as d)::ds_rest ->
+      if name = fname then Some(d) else find_decl ds_rest name
+
+let rec find_one (l : 'a list) (elt : 'a) : bool =
+  match l with
+    | [] -> false
+    | x::xs -> (elt = x) || (find_one xs elt)
+
+let rec find_dup (l : 'a list) : 'a option =
+  match l with
+    | [] -> None
+    | [x] -> None
+    | x::xs ->
+      if find_one xs x then Some(x) else find_dup xs
+
+let rec find_instance (l : 'a list) (a : 'a) : 'a option =
+  match l with
+    | [] -> None
+    | x::xs ->
+        if a = x then Some(a) else find_instance xs a
+
+let rec remove_from_list (l : 'a list) (a : 'a) =
+  match l with
+    | [] -> []
+    | x::xs ->
+        if a = x then xs else x::remove_from_list xs a
 
 type tag = int
 let tag (p : 'a program) : tag program =
@@ -351,13 +371,13 @@ let arg_to_const arg = match arg with
 let checkBool arg = [
     IMov(Reg(EAX), arg);
     ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-    IJz("error_logic_not_bool");
+    IJz("err_LOGIC_NOT_BOOL");
 ]
 
 let checkNum arg = [
     IMov(Reg(EAX), arg);
     ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-    IJnz("error_arith_not_num");
+    IJnz("err_ARITH_NOT_NUM");
 ]
 
 let blockTrueFalse label_true label_done = [
@@ -369,14 +389,13 @@ let blockTrueFalse label_true label_done = [
 ]
 
 let rec compile_fun (name : string) args env is_tail : instruction list =
-    let compile_arg a = compile_imm a env in (*function macro*)
     if is_tail then
         let copy_arg i a = [ IMov(Reg(EAX), a); IMov(RegOffset(word_size*(i+2), EBP), Reg(EAX)); ] in
-        List.flatten(List.mapi copy_arg (List.rev_map compile_arg args))
+        List.flatten(List.mapi copy_arg (List.rev_map (fun a -> compile_imm a env) args))
         @ [ IJmp(func_begin_label name) ]
     else
-        List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map compile_arg args) @ [
-        ICall(name);
+        List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map (fun a -> compile_imm a env) args) @ [
+            ICall(name);
         IAdd(Reg(ESP), Const((List.length args)*word_size));
     ]
 and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
@@ -402,7 +421,7 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
             IJe(label_true);
             ICmp(Reg(EAX), const_false);
             IJe(label_false);
-            IJmp("error_logic_not_bool");
+            IJmp("err_IF_NOT_BOOL");
             ILabel(label_true);
         ] @ compile_aexpr thn si env num_args true @ [
             IJmp(label_done);
@@ -419,13 +438,13 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
             checkNum arg @ [
             (*IMov(Reg(EAX), arg);*)
             IAdd(Reg(EAX), Const(1 lsl 1));
-            IJo("error_int_overflow");
+            IJo("err_OVERFLOW");
         ]
         | Sub1 ->
             checkNum arg @ [
             (*IMov(Reg(EAX), arg);*)
             ISub(Reg(EAX), Const(1 lsl 1));
-            IJo("error_int_overflow");
+            IJo("err_OVERFLOW");
         ]
         | Print -> [
             IMov(Reg(EAX), arg);
@@ -464,17 +483,17 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         | Plus -> [
             (*IMov(Reg(EAX), arg1);*)
             IAdd(Reg(EAX), arg2);
-            IJo("error_int_overflow");
+            IJo("err_OVERFLOW");
         ]
         | Minus -> [
             (*IMov(Reg(EAX), arg1);*)
             ISub(Reg(EAX), arg2);
-            IJo("error_int_overflow");
+            IJo("err_OVERFLOW");
         ]
         | Times -> [
             (*IMov(Reg(EAX), arg1);*)
             IMul(Reg(EAX), arg2);
-            IJo("error_int_overflow");
+            IJo("err_OVERFLOW");
             ISar(Reg(EAX), Const(1));
         ]
         | And -> [
@@ -558,25 +577,6 @@ let compile_decl (d : tag adecl) : instruction list =
         compile_aexpr body 1 env (List.length args_list) true @
         func_stack_cleanup func_name stack_size
 
-(* You may find some of these helpers useful *)
-let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
-  match ds with
-    | [] -> None
-    | (DFun(fname, _, _, _) as d)::ds_rest ->
-      if name = fname then Some(d) else find_decl ds_rest name
-
-let rec find_one (l : 'a list) (elt : 'a) : bool =
-  match l with
-    | [] -> false
-    | x::xs -> (elt = x) || (find_one xs elt)
-
-let rec find_dup (l : 'a list) : 'a option =
-  match l with
-    | [] -> None
-    | [x] -> None
-    | x::xs ->
-      if find_one xs x then Some(x) else find_dup xs
-
 let rec optimize (ls : instruction list) =
     match ls with
     | [] -> []
@@ -589,7 +589,7 @@ let rec optimize (ls : instruction list) =
         what::optimize rest
 
 let compile_prog (anfed : tag aprogram) =
-    match anfed with | AProgram(declList, expr, _) ->
+    match anfed with | AProgram(decls, expr, _) ->
     let func_name = "our_code_starts_here" in
     let stack_size = word_size * (count_vars expr) in
     let to_string ls = List.fold_left (fun s i -> sprintf "%s\n%s" s (i_to_asm i)) "" ls in
@@ -603,16 +603,23 @@ global our_code_starts_here" in
     let postlude = [
         (* Error handling labels *)
         ILineComment("Error handling labels");
-        ILabel("error_arith_not_num");
-        IPush(HexConst(0xA));
+        ILabel("err_COMP_NOT_NUM");
+        IPush(HexConst(err_COMP_NOT_NUM));
         ICall("error");
         IJmp("cleanup_error");
-        ILabel("error_logic_not_bool");
-        IPush(HexConst(0xB));
+        ILabel("err_ARITH_NOT_NUM");
+        IPush(HexConst(err_ARITH_NOT_NUM));
         ICall("error");
         IJmp("cleanup_error");
-        ILabel("error_int_overflow");
-        IPush(HexConst(0xC));
+        ILabel("err_LOGIC_NOT_BOOL");
+        IPush(HexConst(err_LOGIC_NOT_BOOL));
+        ICall("error");
+        IJmp("cleanup_error");
+        ILabel("err_IF_NOT_BOOL");
+        IPush(HexConst(err_IF_NOT_BOOL));
+        ICall("error");
+        ILabel("err_OVERFLOW");
+        IPush(HexConst(err_OVERFLOW));
         ICall("error");
         IJmp("cleanup_error");
         (* Cleanup error calls here *)
@@ -621,7 +628,7 @@ global our_code_starts_here" in
         IMov(Reg(EAX), Const(0));
         IJmp(sprintf "%s_stack_cleanup_return" func_name);
     ] in
-    let funcs = List.flatten(List.map (compile_decl) (declList)) in
+    let funcs = List.flatten(List.map (compile_decl) (decls)) in
     let main = compile_aexpr expr 1 [] 0 false in
     let instruction_list = optimize (funcs @ setup @ main @ cleanup @ postlude) in
     header ^ (to_string instruction_list)
@@ -637,4 +644,3 @@ let compile_to_string prog : (exn list, string) either =
      (* printf "ANFed/tagged:\n%s\n" (format_expr anfed string_of_int); *)
      Right(compile_prog anfed)
   (*| _ -> Left(errors)*)
-
