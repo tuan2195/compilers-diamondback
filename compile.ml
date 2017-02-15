@@ -67,12 +67,23 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
     let rec wf_E e decl_list env (* other parameters may be needed here *) =
         match e with
         | ELet(bind_list, body, pos) ->
-            let vars_list  = (List.map (fun b -> let (n, _, p) = b in (n, p)) bind_list) in
+            let shadow_check var =
+                let rec find_shadow ls name =
+                    match ls with
+                    | [] -> None
+                    | (id, pos)::rest ->
+                        if id = name then Some(pos) else find_shadow rest name in
+                let (name, pos) = var in
+                match find_shadow env name with
+                | None -> []
+                | Some(dup_pos) -> [ShadowId(name, pos, dup_pos)] in
+            let vars_list  = List.map (fun b -> let (n, _, p) = b in (n, p)) bind_list in
             let vars_excns = dup_env vars_list in
+            let shadow_excns = List.flatten(List.map shadow_check vars_list) in
             let expr_list  = List.map (fun b -> let (_, e, _) = b in e) bind_list in
             let expr_excns = List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list) in
-            let body_excns = wf_E body decl_list ((List.map fst vars_list)@env) in
-            vars_excns @ expr_excns @ body_excns
+            let body_excns = wf_E body decl_list (vars_list@env) in
+            vars_excns @ shadow_excns @ expr_excns @ body_excns
         | EPrim1(_, expr, pos) ->
             wf_E expr decl_list env
         | EPrim2(_, expr1, expr2, pos) ->
@@ -90,7 +101,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
         | EBool(_, _) ->
             []
         | EId(id, pos) ->
-            if find_one env id then
+            if find_one (List.map fst env) id then
                 []
             else
                 [UnboundId(id, pos)]
@@ -99,14 +110,26 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
             | None ->
                 [UnboundFun(func, pos)]
             | Some(func) ->
-                let DFun(_, var_list, _, _) = func in
-                if (List.length var_list != List.length expr_list) then
-                    [Arity(List.length var_list, List.length expr_list, pos)]
+                let DFun(_, vars_list, _, _) = func in
+                let decl_numargs = List.length vars_list in
+                let expr_numargs = List.length expr_list in
+                if (decl_numargs != expr_numargs) then
+                    [Arity(decl_numargs, expr_numargs, pos)]
                 else
                     List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list)
     and wf_D d decl_list =
         let DFun(name, env, body, pos) = d in
-        let var_excns = dup_env env in var_excns
+        let vars_excns = dup_env env in
+        let body_excns = wf_E body decl_list env in
+        vars_excns @ body_excns
+    and check_funcs decl_list =
+        match decl_list with
+        | [] -> []
+        | (DFun(name, _, _, pos) as func)::rest ->
+            match find_decl rest name with
+            | None -> wf_D func decl_list @ check_funcs rest
+            | Some(DFun(_, _, _, dup_pos)) ->
+                [DuplicateFun(name, pos, dup_pos)] @ check_funcs rest
     and dup_env env =
         match env with
         | [] -> []
@@ -114,12 +137,11 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
             | None -> dup_env xs
             | Some(dup) ->
                 let new_env = remove_from_list xs x in
-                DuplicateId(fst x, snd dup, snd x)::dup_env xs
+                DuplicateId(fst x, snd dup, snd x)::dup_env new_env
         )
     in match p with
     | Program(decls, body, _) ->
-        let decl_exns = List.flatten(List.map (fun d -> wf_D d decls) decls) in
-        decl_exns @ wf_E body decls []
+        check_funcs decls @ wf_E body decls []
 ;
 
 type tag = int
@@ -693,13 +715,13 @@ global our_code_starts_here" in
     header ^ (to_string instruction_list)
 
 let compile_to_string prog : (exn list, string) either =
-  (*let errors = well_formed prog in*)
-  (*match errors with*)
-  (*| [] ->*)
+  let errors = well_formed prog in
+  match errors with
+  | [] ->
      let tagged : tag program = tag prog in
      let anfed : tag aprogram = atag (anf tagged) in
      (* printf "Prog:\n%s\n" (ast_of_expr prog); *)
      (* printf "Tagged:\n%s\n" (format_expr tagged string_of_int); *)
      (* printf "ANFed/tagged:\n%s\n" (format_expr anfed string_of_int); *)
      Right(compile_prog anfed)
-  (*| _ -> Left(errors)*)
+  | _ -> Left(errors)
