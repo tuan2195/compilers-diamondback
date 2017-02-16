@@ -36,6 +36,16 @@ let tests =
   t "m4" "5 - 0" "5";
   t "m5" "5 + 0" "5";
   t "m6" "5 * 0" "0";
+  t "m7" "let x = 5 in x" "5";
+  t "m8" "let x = 5, y = 6 in x + y" "11";
+  t "m9" "let x = 5 + 6 in x" "11";
+  t "m10" "let x = let y = 5 + 6 in y in x - 6" "5";
+  t "m11" "let x = 5 in let y = 5 + x in y" "10";
+  t "m12" "let x = 5, y = 6 in let z = x + y in z" "11";
+  t "m13" "let x = 5, y = 6 in let z = let a = x + y in a in z" "11";
+  t "m14" "let x = 5 in 5 * x" "25";
+  t "m15" "let x = 5, y = 6 in x * y" "30";
+  t "m16" "let x = 5, y = 6 in let z = let a = x * y in a in z" "30";
 
   t "f1" "def f(x,y): (x+y) f(1,2)" "3";
   t "f2" "def f(x,y): (x-y) f(4,1)" "3";
@@ -53,25 +63,24 @@ let tests =
   t "f9" "def f(x): (if x==0: 0 else: (x + f(x - 1))) f(24)" "300";
   t "f10" "def f(): 5 f()" "5";
 
-  t "f1_tail" "def f(x, acc): (if x==1: acc else: f(x - 1, acc * x)) f(6, 1)" "720";
-  t "f2_tail" "def f(x, acc): (if x==0: acc else: f(x - 1, acc + x)) f(99, 0)" "4950";
-  t "f3_tail" "def f(x, acc): (if x==1: acc else: g(x - 1, acc * x))
-               def g(x, acc): (if x==1: acc+1 else: f(x - 1, acc + x)) f(16, 1)" "20643839";
+  t "f_tail_1" "def f(x, a): (if x==1: a else: f(x - 1, a * x)) f(6, 1)" "720";
+  t "f_tail_2" "def f(x, a): (if x==0: a else: f(x - 1, a + x)) f(99, 0)" "4950";
+  t "f_tail_3" "def f(x, a): (if x==1: a else: g(x - 1, a * x))
+                def g(x, a): (if x==1: a+1 else: f(x - 1, a + x)) f(16, 1)" "20643839";
 
 
-  te "if_num" "if (5) then: 5 else: 5" "1";
-
-  t "m7" "let x = 5 in x" "5";
-  t "m8" "let x = 5, y = 6 in x + y" "11";
-  t "m9" "let x = 5 + 6 in x" "11";
-  t "m10" "let x = let y = 5 + 6 in y in x - 6" "5";
-  t "m11" "let x = 5 in let y = 5 + x in y" "10";
-  t "m12" "let x = 5, y = 6 in let z = x + y in z" "11";
-  t "m13" "let x = 5, y = 6 in let z = let a = x + y in a in z" "11";
-
-  t "m14" "let x = 5 in 5 * x" "25";
-  t "m15" "let x = 5, y = 6 in x * y" "30";
-  t "m16" "let x = 5, y = 6 in let z = let a = x * y in a in z" "30";
+  te "comp_num_1" "if (5 == true): 5 else: 10" "1";
+  te "comp_num_2" "if (5 < true): 5 else: 10" "1";
+  te "comp_num_3" "if (5 > true): 5 else: 10" "1";
+  te "arith_num_1" "5 + true" "2";
+  te "arith_num_2" "5 - true" "2";
+  te "arith_num_3" "5 * true" "2";
+  te "logic_bool_1" "!(5)" "3";
+  te "logic_bool_2" "5 && 5" "3";
+  te "logic_bool_3" "5 || 5" "3";
+  te "if_num" "if 5 : 5 else: 10" "4";
+  te "ovf_1" "999999999 * 999999999" "5";
+  te "ovf_2" "def f(x, a): (if x==1: a else: f(x - 1, a * x)) f(99, 1)" "5";
 
   te "e1" "let x = 5 in x + y" "The identifier y, used at <e1, 1:17-1:18>, is not in scope";
   te "e2" "def f(x,y): (x+y) g(1,2)" "The function name g, used at <e2, 1:18-1:24>, is not in scope";
