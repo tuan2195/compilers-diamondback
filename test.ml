@@ -72,7 +72,7 @@ let tests =
   t "m16" "let x = 5, y = 6 in let z = let a = x * y in a in z" "30";
 
   te "e1" "let x = 5 in x + y" "The identifier y, used at <e1, 1:17-1:18>, is not in scope";
-  te "e2" "def f(x,y): (x+y) g(1,2)" "The function name y, used at <e2, 1:18-1:24>, is not in scope";
+  te "e2" "def f(x,y): (x+y) g(1,2)" "The function name g, used at <e2, 1:18-1:24>, is not in scope";
   te "e3" "let x = 5 in let x = 5 in 4" "The identifier x, defined at <e3, 1:17-1:18>, shadows one defined at <e3, 1:4-1:5>";
   te "e4" "def f(x): (x)
            def f(x): (x)
