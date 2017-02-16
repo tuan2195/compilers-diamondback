@@ -47,7 +47,7 @@ let tests =
   t "m15" "let x = 5, y = 6 in x * y" "30";
   t "m16" "let x = 5, y = 6 in let z = let a = x * y in a in z" "30";
 
-  t "f1" "def f(x): (x*x) f(16)" "256";
+  t "f1" "def sq(x): (x*x) def ten(): 10 sq(ten())" "100";
   t "f2" "def f(x,y): (x-y) f(4,1)" "3";
   t "f3" "def f(x,y,z): (x*y+z)
           def g(x,y): (x+y)
