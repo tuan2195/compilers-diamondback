@@ -4,23 +4,6 @@ open Pretty
 
 type 'a envt = (string * 'a) list
 
-let rec is_anf (e : 'a expr) : bool =
-  match e with
-  | EPrim1(_, e, _) -> is_imm e
-  | EPrim2(_, e1, e2, _) -> is_imm e1 && is_imm e2
-  | ELet(binds, body, _) ->
-     List.for_all (fun (_, e, _) -> is_anf e) binds
-     && is_anf body
-  | EIf(cond, thn, els, _) -> is_imm cond && is_anf thn && is_anf els
-  | _ -> is_imm e
-and is_imm e =
-  match e with
-  | ENumber _ -> true
-  | EBool _ -> true
-  | EId _ -> true
-  | _ -> false
-;;
-
 let const_true = HexConst(0xFFFFFFFF)
 let const_false = HexConst(0x7FFFFFFF)
 let bool_mask = HexConst(0x80000000)
@@ -62,6 +45,23 @@ let rec remove_from_list (l : 'a list) (a : 'a) =
     | [] -> []
     | x::xs ->
         if a = x then xs else x::remove_from_list xs a
+
+let rec is_anf (e : 'a expr) : bool =
+  match e with
+  | EPrim1(_, e, _) -> is_imm e
+  | EPrim2(_, e1, e2, _) -> is_imm e1 && is_imm e2
+  | ELet(binds, body, _) ->
+     List.for_all (fun (_, e, _) -> is_anf e) binds
+     && is_anf body
+  | EIf(cond, thn, els, _) -> is_imm cond && is_anf thn && is_anf els
+  | _ -> is_imm e
+and is_imm e =
+  match e with
+  | ENumber _ -> true
+  | EBool _ -> true
+  | EId _ -> true
+  | _ -> false
+;;
 
 let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
     let rec wf_E e decl_list env (* other parameters may be needed here *) =
@@ -113,7 +113,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
                 let DFun(_, vars_list, _, _) = func in
                 let decl_numargs = List.length vars_list in
                 let expr_numargs = List.length expr_list in
-                if (decl_numargs != expr_numargs) then
+                if decl_numargs != expr_numargs then
                     [Arity(decl_numargs, expr_numargs, pos)]
                 else
                     List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list)
@@ -292,7 +292,6 @@ let anf (p : tag program) : unit aprogram =
              ([], [])
              args in
          (CApp(funname, args_list, ()), setup_list)
-         (*failwith "Implement ANF conversion for function calls"*)
       | _ -> let (imm, setup) = helpI e in (CImmExpr imm, setup)
     and helpI (e : tag expr) : (unit immexpr * (string * unit cexpr) list) =
       match e with
@@ -319,7 +318,6 @@ let anf (p : tag program) : unit aprogram =
          let name = sprintf "func_%s_%d" funname tag in
          let (func_expr, setup) = helpC e in
          (ImmId(name, ()), setup @ [(name, func_expr)])
-         (*failwith "Implement ANF conversion for function calls"*)
       | ELet([], body, _) -> helpI body
       | ELet((bind, exp, _)::rest, body, pos) ->
          let (exp_ans, exp_setup) = helpC exp in
@@ -475,7 +473,7 @@ let check_compare arg = [
     IJnz("err_COMP_NOT_NUM");
 ]
 
-let blockTrueFalse label_true label_done = [
+let block_true_false label_true label_done = [
     IMov(Reg(EAX), const_false);
     IJmp(label_done);
     ILabel(label_true);
@@ -510,9 +508,9 @@ and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
 and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
     match e with
     | CIf (cnd, thn, els, t) ->
-        let label_false = sprintf "if_false_%d" t in
-        let label_true = sprintf "if_true_%d" t in
-        let label_done = sprintf "if_done_%d" t in
+        let label_false = sprintf "if_%d_false" t in
+        let label_true = sprintf "if_%d_true" t in
+        let label_done = sprintf "if_%d_done" t in
         let argCond = compile_imm cnd env in
         check_if argCond @ [
             (*IMov(Reg(EAX), argCond);*)
@@ -535,13 +533,11 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         (match op with
         | Add1 ->
             check_arith arg @ [
-            (*IMov(Reg(EAX), arg);*)
             IAdd(Reg(EAX), Const(1 lsl 1));
             IJo("err_OVERFLOW");
         ]
         | Sub1 ->
             check_arith arg @ [
-            (*IMov(Reg(EAX), arg);*)
             ISub(Reg(EAX), Const(1 lsl 1));
             IJo("err_OVERFLOW");
         ]
@@ -555,12 +551,12 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
             IMov(Reg(EAX), arg);
             ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
             IJnz(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         | IsNum -> [
             IMov(Reg(EAX), arg);
             ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
             IJz(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         | Not ->
             check_logic arg @ [
             IXor(Reg(EAX), bool_mask);
@@ -568,8 +564,8 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         | PrintStack -> failwith "PrintStack not implemented"
         )
     | CPrim2(op, e1, e2, t) ->
-        let label_true = sprintf "compare_true_%d" t in
-        let label_done = sprintf "compare_done_%d" t in
+        let label_true = sprintf "compare_%d_true" t in
+        let label_done = sprintf "compare_%d_done" t in
         let arg1 = compile_imm e1 env in
         let arg2 = compile_imm e2 env in
         let prelude = match op with
@@ -582,54 +578,44 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         in prelude @ (match op with
         (* A lot of optimization here so watch out for bugs *)
         | Plus -> [
-            (*IMov(Reg(EAX), arg1);*)
             IAdd(Reg(EAX), arg2);
             IJo("err_OVERFLOW");
         ]
         | Minus -> [
-            (*IMov(Reg(EAX), arg1);*)
             ISub(Reg(EAX), arg2);
             IJo("err_OVERFLOW");
         ]
         | Times -> [
-            (*IMov(Reg(EAX), arg1);*)
             IMul(Reg(EAX), arg2);
             IJo("err_OVERFLOW");
             ISar(Reg(EAX), Const(1));
         ]
         | And -> [
-            (*IMov(Reg(EAX), arg1);*)
             IAnd(Reg(EAX), arg2);
         ]
         | Or -> [
-            (*IMov(Reg(EAX), arg1);*)
             IOr(Reg(EAX), arg2);
         ]
         | Greater -> [
-            (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
             IJg(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         | GreaterEq -> [
-            (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
             IJge(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         | Less -> [
-            (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
             IJl(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         | LessEq -> [
-            (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
             IJle(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         | Eq -> [
-            (*IMov(Reg(EAX), arg1);*)
             ICmp(Reg(EAX), arg2);
             IJe(label_true);
-        ] @ blockTrueFalse label_true label_done
+        ] @ block_true_false label_true label_done
         )
     | CApp(name, args, t) ->
         compile_fun name args env (is_tail && (num_args = List.length args))
@@ -647,7 +633,6 @@ let func_stack_setup func_name stack_size = [
     ILineComment(sprintf "Function %s: Stack setup" func_name);
     IPush(Reg(EBP));
     IMov(Reg(EBP), Reg(ESP));
-    (* Stack setup: Push zeroes on stack *)
     IMov(Reg(EAX), Reg(ESP));
     ISub(Reg(EAX), Const(stack_size));
     ILabel(func_setup_label func_name);
@@ -707,27 +692,18 @@ global our_code_starts_here" in
         ILabel("err_COMP_NOT_NUM");
         IPush(HexConst(err_COMP_NOT_NUM));
         ICall("error");
-        IJmp("cleanup_error");
         ILabel("err_ARITH_NOT_NUM");
         IPush(HexConst(err_ARITH_NOT_NUM));
         ICall("error");
-        IJmp("cleanup_error");
         ILabel("err_LOGIC_NOT_BOOL");
         IPush(HexConst(err_LOGIC_NOT_BOOL));
         ICall("error");
-        IJmp("cleanup_error");
         ILabel("err_IF_NOT_BOOL");
         IPush(HexConst(err_IF_NOT_BOOL));
         ICall("error");
         ILabel("err_OVERFLOW");
         IPush(HexConst(err_OVERFLOW));
         ICall("error");
-        IJmp("cleanup_error");
-        (* Cleanup error calls here *)
-        ILabel("cleanup_error");
-        IPop(Reg(EAX));
-        IMov(Reg(EAX), Const(0));
-        IJmp(sprintf "%s_stack_cleanup_return" func_name);
     ] in
     let funcs = List.flatten(List.map (compile_decl) (decls)) in
     let main = compile_aexpr expr 1 [] 0 false in
