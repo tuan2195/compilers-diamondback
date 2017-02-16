@@ -87,7 +87,7 @@ let tests =
   te "e8" "def f(x, y): (x+y)
            f(5)"
           "The function called at <e8, 2:11-2:15> expected an arity of 2, but received 1 argument";
- te "e9" "def f(x, x): (x+1) f(5, 6)" "This should be duplicate ID..."
+ te "e9" "def f(x, x): (x+1) f(5, 6)" "The identifier x, redefined at <e9, 1:9-1:10>, duplicates one at <e9, 1:6-1:7>"
 
  ]
 
