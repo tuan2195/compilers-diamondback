@@ -51,6 +51,7 @@ let tests =
   t "f6" "def f(x): (if x==1: x else: 1) f(1)" "1";
   t "f8" "def f(x): (if x==0: 1 else: (x * f(x - 1))) f(6)" "720";
   t "f9" "def f(x): (if x==0: 0 else: (x + f(x - 1))) f(24)" "300";
+  t "f10" "def f(): 5 f()" "5";
 
   t "f1_tail" "def f(x, acc): (if x==1: acc else: f(x - 1, acc * x)) f(6, 1)" "720";
   t "f2_tail" "def f(x, acc): (if x==0: acc else: f(x - 1, acc + x)) f(99, 0)" "4950";
@@ -87,8 +88,8 @@ let tests =
   te "e8" "def f(x, y): (x+y)
            f(5)"
           "The function called at <e8, 2:11-2:15> expected an arity of 2, but received 1 argument";
- te "e9" "def f(x, x): (x+1) f(5, 6)" "The identifier x, redefined at <e9, 1:9-1:10>, duplicates one at <e9, 1:6-1:7>"
-
+  te "e9" "def f(x, x): (x+1) f(5, 6)" "The identifier x, redefined at <e9, 1:9-1:10>, duplicates one at <e9, 1:6-1:7>";
+  te "e10" "def f(): 5 f(x)" "The function called at <e10, 1:11-1:15> expected an arity of 0, but received 1 arguments";
  ]
 
 let suite =
