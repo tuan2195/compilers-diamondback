@@ -70,6 +70,22 @@ let tests =
   t "m14" "let x = 5 in 5 * x" "25";
   t "m15" "let x = 5, y = 6 in x * y" "30";
   t "m16" "let x = 5, y = 6 in let z = let a = x * y in a in z" "30";
+
+  te "e1" "let x = 5 in x + y" "The identifier y, used at <e1, 1:17-1:18>, is not in scope";
+  te "e2" "def f(x,y): (x+y) g(1,2)" "The function name y, used at <e2, 1:18-1:24>, is not in scope";
+  te "e3" "let x = 5 in let x = 5 in 4" "The identifier x, defined at <e3, 1:17-1:18>, shadows one defined at <e3, 1:4-1:5>";
+  te "e4" "def f(x): (x)
+           def f(x): (x)
+           f(f(5))"
+          "The function name f, redefined at <e4, 1:0-1:13>, duplicates one at <e4, 2:11-2:24>";
+  te "e5" "let x = 1073741824 in x" "The number literal 1073741824, used at <e5, 1:8-1:18>, is not supported in this language";
+  te "e6" "let x = -1073741825 in x" "The number literal -1073741825, used at <e6, 1:8-1:19>, is not supported in this language";
+  te "e7" "def f(x): (x)
+           f(5, 6)"
+          "The function called at <e7, 2:11-2:18> expected an arity of 1, but received 2 arguments";
+  te "e8" "def f(x, y): (x+y)
+           f(5)"
+          "The function called at <e8, 2:11-2:15> expected an arity of 2, but received 1 argument";
  ]
 
 let suite =
