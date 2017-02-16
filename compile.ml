@@ -127,7 +127,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
         | [] -> []
         | (DFun(name, _, _, pos) as func)::rest ->
             match find_decl rest name with
-            | None -> wf_D func decl_list @ check_funcs rest
+            | None -> check_funcs rest
             | Some(DFun(_, _, _, dup_pos)) ->
                 [DuplicateFun(name, pos, dup_pos)] @ check_funcs rest
     and dup_env env =
@@ -141,7 +141,9 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
         )
     in match p with
     | Program(decls, body, _) ->
-        check_funcs decls @ wf_E body decls []
+        List.flatten(List.map (fun f -> wf_D f decls) decls) @
+        check_funcs decls @
+        wf_E body decls []
 ;
 
 type tag = int
@@ -449,16 +451,28 @@ let arg_to_const arg = match arg with
         -> Some(x)
     | _ -> None
 
-let checkBool arg = [
+let check_logic arg = [
     IMov(Reg(EAX), arg);
     ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
     IJz("err_LOGIC_NOT_BOOL");
 ]
 
-let checkNum arg = [
+let check_if arg = [
+    IMov(Reg(EAX), arg);
+    ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+    IJz("err_IF_NOT_BOOL");
+]
+
+let check_arith arg = [
     IMov(Reg(EAX), arg);
     ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
     IJnz("err_ARITH_NOT_NUM");
+]
+
+let check_compare arg = [
+    IMov(Reg(EAX), arg);
+    ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+    IJnz("err_COMP_NOT_NUM");
 ]
 
 let blockTrueFalse label_true label_done = [
@@ -472,13 +486,14 @@ let blockTrueFalse label_true label_done = [
 let rec compile_fun (name : string) args env is_tail : instruction list =
     if is_tail then
         let copy_arg i a = [ IMov(Reg(EAX), a); IMov(RegOffset(word_size*(i+2), EBP), Reg(EAX)); ] in
-        List.flatten(List.mapi copy_arg (List.rev_map (fun a -> compile_imm a env) args))
-        @ [ IJmp(func_begin_label name) ]
+        [   ILineComment(sprintf "Tail-call to function %s" name) ] @
+            List.flatten(List.mapi copy_arg (List.rev_map (fun a -> compile_imm a env) args)) @
+        [   IJmp(func_begin_label name) ]
     else
-        List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map (fun a -> compile_imm a env) args) @ [
-            ICall(name);
-        IAdd(Reg(ESP), Const((List.length args)*word_size));
-    ]
+        [   ILineComment(sprintf "Call to function %s" name) ] @
+            List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map (fun a -> compile_imm a env) args) @
+        [   ICall(name);
+            IAdd(Reg(ESP), Const((List.length args)*word_size)); ]
 and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
     match e with
     | ALet(name, exp, body, _) ->
@@ -496,7 +511,7 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         let label_true = sprintf "if_true_%d" t in
         let label_done = sprintf "if_done_%d" t in
         let argCond = compile_imm cnd env in
-        checkBool argCond @ [
+        check_if argCond @ [
             (*IMov(Reg(EAX), argCond);*)
             ICmp(Reg(EAX), const_true);
             IJe(label_true);
@@ -516,13 +531,13 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         let label_done = sprintf "isboolnum_done_%d" t in
         (match op with
         | Add1 ->
-            checkNum arg @ [
+            check_arith arg @ [
             (*IMov(Reg(EAX), arg);*)
             IAdd(Reg(EAX), Const(1 lsl 1));
             IJo("err_OVERFLOW");
         ]
         | Sub1 ->
-            checkNum arg @ [
+            check_arith arg @ [
             (*IMov(Reg(EAX), arg);*)
             ISub(Reg(EAX), Const(1 lsl 1));
             IJo("err_OVERFLOW");
@@ -544,7 +559,7 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
             IJz(label_true);
         ] @ blockTrueFalse label_true label_done
         | Not ->
-            checkBool arg @ [
+            check_logic arg @ [
             IXor(Reg(EAX), bool_mask);
         ]
         | PrintStack -> failwith "PrintStack not implemented"
@@ -555,10 +570,12 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         let arg1 = compile_imm e1 env in
         let arg2 = compile_imm e2 env in
         let prelude = match op with
-            | Plus | Minus | Times | Greater | GreaterEq | Less | LessEq | Eq ->
-                checkNum arg2 @ checkNum arg1
+            | Plus | Minus | Times ->
+                check_arith arg2 @ check_arith arg1
+            | Greater | GreaterEq | Less | LessEq | Eq ->
+                check_compare arg2 @ check_compare arg1
             | And | Or ->
-                checkBool arg2 @ checkBool arg1
+                check_logic arg2 @ check_logic arg1
         in prelude @ (match op with
         (* A lot of optimization here so watch out for bugs *)
         | Plus -> [

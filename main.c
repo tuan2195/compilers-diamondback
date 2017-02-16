@@ -4,10 +4,17 @@
 
 extern int our_code_starts_here() asm("our_code_starts_here");
 extern int print(int val) asm("print");
+extern void error(int err) asm("error");
 
 const int BOOL_TRUE  = 0xFFFFFFFF;
 const int BOOL_FALSE = 0x7FFFFFFF;
 const int BOOL_FLAG  = 0x1;
+
+#define ERR_COMP_NOT_NUM   0
+#define ERR_ARITH_NOT_NUM  1
+#define ERR_LOGIC_NOT_BOOL 2
+#define ERR_IF_NOT_BOOL    3
+#define ERR_OVERFLOW       4
 
 int print(int val)
 {
@@ -24,19 +31,20 @@ int print(int val)
 
 void error(int err)
 {
-    if (err == 0xA)
+    if (err == ERR_COMP_NOT_NUM)
+        printf("Error: Comparison operation expects a number\n");
+    else if (err == ERR_ARITH_NOT_NUM)
         printf("Error: Arithmetic operation expects a number\n");
-    else if (err == 0xB)
-        printf("Error: Logic/if operation expects a boolean\n");
-    else if (err == 0xC)
+    else if (err == ERR_LOGIC_NOT_BOOL)
+        printf("Error: Logic operation expects a boolean\n");
+    else if (err == ERR_IF_NOT_BOOL)
+        printf("Error: If operation expects a boolean\n");
+    else if (err == ERR_OVERFLOW)
         printf("Error: Integer overflow detected\n");
+    else
+        printf("Error: Unknown error\n");
+    exit(-1);
 }
-
-/*
-
-COPY YOUR IMPLEMENTATION FROM COBRA
-
-*/
 
 
 // main should remain unchanged
