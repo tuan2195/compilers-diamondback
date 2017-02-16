@@ -10,11 +10,11 @@ const int BOOL_TRUE  = 0xFFFFFFFF;
 const int BOOL_FALSE = 0x7FFFFFFF;
 const int BOOL_FLAG  = 0x1;
 
-#define ERR_COMP_NOT_NUM   0
-#define ERR_ARITH_NOT_NUM  1
-#define ERR_LOGIC_NOT_BOOL 2
-#define ERR_IF_NOT_BOOL    3
-#define ERR_OVERFLOW       4
+#define ERR_COMP_NOT_NUM   1
+#define ERR_ARITH_NOT_NUM  2
+#define ERR_LOGIC_NOT_BOOL 3
+#define ERR_IF_NOT_BOOL    4
+#define ERR_OVERFLOW       5
 
 int print(int val)
 {
@@ -43,7 +43,7 @@ void error(int err)
         printf("Error: Integer overflow detected\n");
     else
         printf("Error: Unknown error\n");
-    exit(-1);
+    exit(err);
 }
 
 

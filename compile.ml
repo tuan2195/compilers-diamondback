@@ -5,17 +5,17 @@ open Pretty
 type 'a envt = (string * 'a) list
 
 let const_true_value = 0xFFFFFFFF
-let const_true = HexConst(const_true_value)
+let const_true = Sized(DWORD_PTR, HexConst(const_true_value))
 let const_false_value = 0x7FFFFFFF
-let const_false = HexConst(const_false_value)
-let bool_mask = HexConst(0x80000000)
-let tag_as_bool = HexConst(0x00000001)
+let const_false = Sized(DWORD_PTR, HexConst(const_false_value))
+let bool_mask = Sized(DWORD_PTR, HexConst(0x80000000))
+let tag_as_bool = Sized(DWORD_PTR, HexConst(0x00000001))
 
-let err_COMP_NOT_NUM   = 0
-let err_ARITH_NOT_NUM  = 1
-let err_LOGIC_NOT_BOOL = 2
-let err_IF_NOT_BOOL    = 3
-let err_OVERFLOW       = 4
+let err_COMP_NOT_NUM   = Sized(DWORD_PTR, HexConst(1))
+let err_ARITH_NOT_NUM  = Sized(DWORD_PTR, HexConst(2))
+let err_LOGIC_NOT_BOOL = Sized(DWORD_PTR, HexConst(3))
+let err_IF_NOT_BOOL    = Sized(DWORD_PTR, HexConst(4))
+let err_OVERFLOW       = Sized(DWORD_PTR, HexConst(5))
 
 (* You may find some of these helpers useful *)
 let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
@@ -33,20 +33,7 @@ let rec find_dup (l : 'a list) : 'a option =
   match l with
     | [] -> None
     | [x] -> None
-    | x::xs ->
-      if find_one xs x then Some(x) else find_dup xs
-
-let rec find_instance (l : (string * 'a) list) (a : string) =
-  match l with
-    | [] -> None
-    | x::xs ->
-        if a = fst x then Some(x) else find_instance xs a
-
-let rec remove_from_list (l : 'a list) (a : 'a) =
-  match l with
-    | [] -> []
-    | x::xs ->
-        if a = x then xs else x::remove_from_list xs a
+    | x::xs -> if find_one xs x then Some(x) else find_dup xs
 
 let rec is_anf (e : 'a expr) : bool =
   match e with
@@ -80,7 +67,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
                 | None -> []
                 | Some(dup_pos) -> [ShadowId(name, pos, dup_pos)] in
             let vars_list  = List.map (fun b -> let (n, _, p) = b in (n, p)) bind_list in
-            let vars_excns = dup_env vars_list in
+            let vars_excns = dup_excns vars_list in
             let shadow_excns = List.flatten(List.map shadow_check vars_list) in
             let expr_list  = List.map (fun b -> let (_, e, _) = b in e) bind_list in
             let expr_excns = List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list) in
@@ -121,7 +108,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
                     List.flatten(List.map (fun e -> wf_E e decl_list env) expr_list)
     and wf_D d decl_list =
         let DFun(name, env, body, pos) = d in
-        let vars_excns = dup_env env in
+        let vars_excns = dup_excns env in
         let body_excns = wf_E body decl_list env in
         vars_excns @ body_excns
     and check_funcs decl_list =
@@ -132,13 +119,16 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
             | None -> check_funcs rest
             | Some(DFun(_, _, _, dup_pos)) ->
                 [DuplicateFun(name, pos, dup_pos)] @ check_funcs rest
-    and dup_env env =
+    and dup_excns env =
+        let rec find_dup_pos ls name =
+          match ls with
+            | [] -> None
+            | (id, pos)::rs -> if var = id then Some(pos) else find_dup_pos rs name in
         match env with
         | [] -> []
-        | x::xs -> (match find_instance xs (fst x) with
-            | None -> dup_env xs
-            | Some(dup) ->
-                DuplicateId(fst x, snd dup, snd x)::dup_env xs
+        | x::xs -> (match find_dup_pos xs (fst x) with
+            | None -> dup_excns xs
+            | Some(dup_pos) -> DuplicateId(fst x, dup_pos, snd x)::dup_excns xs
         )
     in match p with
     | Program(decls, body, _) ->
@@ -441,12 +431,13 @@ let rec replicate x i =
   else x :: (replicate x (i - 1))
 
 (* Commonly used macros *)
-let func_begin_label name = sprintf "%s_begin_tail" name
+let func_begin_label name = sprintf "%s_func_begin" name
 let func_setup_label name = sprintf "%s_stack_setup_push_loop" name
 let func_cleanup_label name = sprintf "%s_stack_cleanup_return" name
 
-let arg_to_const arg = match arg with
-    | Const(x) | HexConst(x) | Sized(_, Const(x)) | Sized(_, HexConst(x)) -> Some(x)
+let rec arg_to_const arg = match arg with
+    | Const(x) | HexConst(x) -> Some(x)
+    | Sized(_, a) -> arg_to_const a
     | _ -> None
 
 let check_bool arg label =
@@ -458,7 +449,7 @@ let check_bool arg label =
             [ IJmp(label); ]
     | _ ->
         [ IMov(Reg(EAX), arg);
-          ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+          ITest(Reg(EAX), tag_as_bool);
           IJz(label); ]
 
 let check_num arg label =
@@ -470,7 +461,7 @@ let check_num arg label =
             [ IMov(Reg(EAX), arg); ]
     | _ ->
         [ IMov(Reg(EAX), arg);
-          ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+          ITest(Reg(EAX), tag_as_bool);
           IJnz(label); ]
 
 let check_logic arg = check_bool arg "err_LOGIC_NOT_BOOL"
@@ -554,12 +545,12 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         ]
         | IsBool -> [
             IMov(Reg(EAX), arg);
-            ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+            ITest(Reg(EAX), tag_as_bool);
             IJnz(label_true);
         ] @ block_true_false label_true label_done
         | IsNum -> [
             IMov(Reg(EAX), arg);
-            ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+            ITest(Reg(EAX), tag_as_bool);
             IJz(label_true);
         ] @ block_true_false label_true label_done
         | Not ->
@@ -693,21 +684,21 @@ global our_code_starts_here" in
     let cleanup = func_stack_cleanup func_name stack_size in
     let postlude = [
         (* Error handling labels *)
-        ILineComment("Error handling labels");
+        ILineComment("Error handling labels - will not return!");
         ILabel("err_COMP_NOT_NUM");
-        IPush(HexConst(err_COMP_NOT_NUM));
+        IPush(err_COMP_NOT_NUM);
         ICall("error");
         ILabel("err_ARITH_NOT_NUM");
-        IPush(HexConst(err_ARITH_NOT_NUM));
+        IPush(err_ARITH_NOT_NUM);
         ICall("error");
         ILabel("err_LOGIC_NOT_BOOL");
-        IPush(HexConst(err_LOGIC_NOT_BOOL));
+        IPush(err_LOGIC_NOT_BOOL);
         ICall("error");
         ILabel("err_IF_NOT_BOOL");
-        IPush(HexConst(err_IF_NOT_BOOL));
+        IPush(err_IF_NOT_BOOL);
         ICall("error");
         ILabel("err_OVERFLOW");
-        IPush(HexConst(err_OVERFLOW));
+        IPush(err_OVERFLOW);
         ICall("error");
     ] in
     let funcs = List.flatten(List.map (compile_decl) (decls)) in
