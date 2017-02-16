@@ -405,12 +405,6 @@ let rec i_to_asm i =
   | IInstrComment(instr, str) ->
      sprintf "%s ; %s" (i_to_asm instr) str
 
-let rec find ls x =
-  match ls with
-  | [] -> failwith (sprintf "Name %s not found" x)
-  | (y,v)::rest ->
-     if y = x then v else find rest x
-
 let count_vars e =
   let rec helpA e =
     match e with
@@ -421,10 +415,6 @@ let count_vars e =
     | CIf(_, t, f, _) -> max (helpA t) (helpA f)
     | _ -> 1
   in helpA e
-
-let rec replicate x i =
-  if i = 0 then []
-  else x :: (replicate x (i - 1))
 
 (* Commonly used macros *)
 let func_begin_label name = sprintf "__%s_func_begin" name
@@ -563,7 +553,6 @@ and compile_cexpr e si env num_args is_tail =
             | And | Or ->
                 check_logic arg2 @ check_logic arg1
         in prelude @ (match op with
-        (* A lot of optimization here so watch out for bugs *)
         | Plus -> [
             IAdd(Reg(EAX), arg2);
             IJo("err_OVERFLOW");
@@ -609,11 +598,15 @@ and compile_cexpr e si env num_args is_tail =
     | CImmExpr(e) ->
         [ IMov(Reg(EAX), compile_imm e env) ]
 and compile_imm e env =
-  match e with
-  | ImmNum(n, _) -> Const((n lsl 1))
-  | ImmBool(true, _) -> const_true
-  | ImmBool(false, _) -> const_false
-  | ImmId(x, _) -> find env x
+    let rec find ls x =
+      match ls with
+      | [] -> failwith (sprintf "Name %s not found" x)
+      | (y,v)::rs -> if y = x then v else find rs x in
+    match e with
+    | ImmNum(n, _) -> Const((n lsl 1))
+    | ImmBool(true, _) -> const_true
+    | ImmBool(false, _) -> const_false
+    | ImmId(x, _) -> find env x
 
 let func_stack_setup func_name stack_size = [
     ILabel(func_name);
