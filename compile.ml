@@ -123,7 +123,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
         let rec find_dup_pos ls name =
           match ls with
             | [] -> None
-            | (id, pos)::rs -> if var = id then Some(pos) else find_dup_pos rs name in
+            | (id, pos)::rs -> if name = id then Some(pos) else find_dup_pos rs name in
         match env with
         | [] -> []
         | x::xs -> (match find_dup_pos xs (fst x) with

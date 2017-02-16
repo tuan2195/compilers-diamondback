@@ -51,14 +51,14 @@ let tests =
   t "f6" "def f(x): (if x==1: x else: 1) f(1)" "1";
   t "f8" "def f(x): (if x==0: 1 else: (x * f(x - 1))) f(6)" "720";
   t "f9" "def f(x): (if x==0: 0 else: (x + f(x - 1))) f(24)" "300";
- 
+
   t "f1_tail" "def f(x, acc): (if x==1: acc else: f(x - 1, acc * x)) f(6, 1)" "720";
   t "f2_tail" "def f(x, acc): (if x==0: acc else: f(x - 1, acc + x)) f(99, 0)" "4950";
   t "f3_tail" "def f(x, acc): (if x==1: acc else: g(x - 1, acc * x))
                def g(x, acc): (if x==1: acc+1 else: f(x - 1, acc + x)) f(16, 1)" "20643839";
-  (*t "d1" "def f(x,y,z): (x*y+z)*)
-          (*def f(x,y): (x+y)*)
-          (*f(g(3,4),f(2,2),h(5,9))" "47";*)
+
+
+  te "if_num" "if (5) then: 5 else: 5" "1";
 
   t "m7" "let x = 5 in x" "5";
   t "m8" "let x = 5, y = 6 in x + y" "11";
