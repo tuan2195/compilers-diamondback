@@ -4,8 +4,10 @@ open Pretty
 
 type 'a envt = (string * 'a) list
 
-let const_true = HexConst(0xFFFFFFFF)
-let const_false = HexConst(0x7FFFFFFF)
+let const_true_value = 0xFFFFFFFF
+let const_true = HexConst(const_true_value)
+let const_false_value = 0x7FFFFFFF
+let const_false = HexConst(const_false_value)
 let bool_mask = HexConst(0x80000000)
 let tag_as_bool = HexConst(0x00000001)
 
@@ -445,33 +447,37 @@ let func_setup_label name = sprintf "%s_stack_setup_push_loop" name
 let func_cleanup_label name = sprintf "%s_stack_cleanup_return" name
 
 let arg_to_const arg = match arg with
-    | Const(x) | HexConst(x) | Sized(_, Const(x)) | Sized(_, HexConst(x))
-        -> Some(x)
+    | Const(x) | HexConst(x) | Sized(_, Const(x)) | Sized(_, HexConst(x)) -> Some(x)
     | _ -> None
 
-let check_logic arg = [
-    IMov(Reg(EAX), arg);
-    ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-    IJz("err_LOGIC_NOT_BOOL");
-]
+let check_bool arg label =
+    match arg_to_const arg with
+    | Some(x) ->
+        if (x = const_false_value || x = const_true_value) then
+            [ IMov(Reg(EAX), arg); ]
+        else
+            [ IJmp(label); ]
+    | _ ->
+        [ IMov(Reg(EAX), arg);
+          ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+          IJz(label); ]
 
-let check_if arg = [
-    IMov(Reg(EAX), arg);
-    ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-    IJz("err_IF_NOT_BOOL");
-]
+let check_num arg label =
+    match arg_to_const arg with
+    | Some(x) ->
+        if (x = const_false_value || x = const_true_value) then
+            [ IJmp(label); ]
+        else
+            [ IMov(Reg(EAX), arg); ]
+    | _ ->
+        [ IMov(Reg(EAX), arg);
+          ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
+          IJnz(label); ]
 
-let check_arith arg = [
-    IMov(Reg(EAX), arg);
-    ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-    IJnz("err_ARITH_NOT_NUM");
-]
-
-let check_compare arg = [
-    IMov(Reg(EAX), arg);
-    ITest(Reg(EAX), Sized(DWORD_PTR, tag_as_bool));
-    IJnz("err_COMP_NOT_NUM");
-]
+let check_logic arg = check_bool arg "err_LOGIC_NOT_BOOL"
+let check_if arg = check_bool arg "err_IF_NOT_BOOL"
+let check_arith arg = check_num arg "err_ARITH_NOT_NUM"
+let check_compare arg = check_num arg "err_COMP_NOT_NUM"
 
 let block_true_false label_true label_done = [
     IMov(Reg(EAX), const_false);
