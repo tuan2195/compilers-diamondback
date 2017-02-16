@@ -125,7 +125,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
     and check_funcs decl_list =
         match decl_list with
         | [] -> []
-        | (DFun(name, _, _, pos) as func)::rest ->
+        | DFun(name, _, _, pos)::rest ->
             match find_decl rest name with
             | None -> check_funcs rest
             | Some(DFun(_, _, _, dup_pos)) ->
@@ -731,8 +731,8 @@ global our_code_starts_here" in
     ] in
     let funcs = List.flatten(List.map (compile_decl) (decls)) in
     let main = compile_aexpr expr 1 [] 0 false in
-    let instruction_list = optimize (funcs @ setup @ main @ cleanup @ postlude) in
-    header ^ (to_string instruction_list)
+    let text = to_string (optimize (funcs @ setup @ main @ cleanup @ postlude)) in
+    header ^ text
 
 let compile_to_string prog : (exn list, string) either =
   let errors = well_formed prog in
