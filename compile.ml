@@ -4,19 +4,6 @@ open Pretty
 
 type 'a envt = (string * 'a) list
 
-let const_true_value = 0xFFFFFFFF
-let const_true = Sized(DWORD_PTR, HexConst(const_true_value))
-let const_false_value = 0x7FFFFFFF
-let const_false = Sized(DWORD_PTR, HexConst(const_false_value))
-let bool_mask = Sized(DWORD_PTR, HexConst(0x80000000))
-let tag_as_bool = Sized(DWORD_PTR, HexConst(0x00000001))
-
-let err_COMP_NOT_NUM   = Sized(DWORD_PTR, HexConst(1))
-let err_ARITH_NOT_NUM  = Sized(DWORD_PTR, HexConst(2))
-let err_LOGIC_NOT_BOOL = Sized(DWORD_PTR, HexConst(3))
-let err_IF_NOT_BOOL    = Sized(DWORD_PTR, HexConst(4))
-let err_OVERFLOW       = Sized(DWORD_PTR, HexConst(5))
-
 (* You may find some of these helpers useful *)
 let rec find_decl ds name =
   match ds with
@@ -416,10 +403,29 @@ let count_vars e =
     | _ -> 1
   in helpA e
 
-(* Commonly used macros *)
-let func_begin_label name = sprintf "__%s_func_begin" name
-let func_setup_label name = sprintf "__%s_stack_setup_push_loop" name
-let func_cleanup_label name = sprintf "__%s_stack_cleanup_return" name
+(* Commonly used constants and macros *)
+let const_true_value   = 0xFFFFFFFF
+let const_true         = Sized(DWORD_PTR, HexConst(const_true_value))
+let const_false_value  = 0x7FFFFFFF
+let const_false        = Sized(DWORD_PTR, HexConst(const_false_value))
+let bool_mask          = Sized(DWORD_PTR, HexConst(0x80000000))
+let tag_as_bool        = Sized(DWORD_PTR, HexConst(0x00000001))
+
+let err_COMP_NOT_NUM   = Sized(DWORD_PTR, HexConst(1))
+let err_ARITH_NOT_NUM  = Sized(DWORD_PTR, HexConst(2))
+let err_LOGIC_NOT_BOOL = Sized(DWORD_PTR, HexConst(3))
+let err_IF_NOT_BOOL    = Sized(DWORD_PTR, HexConst(4))
+let err_OVERFLOW       = Sized(DWORD_PTR, HexConst(5))
+
+let label_err_COMP_NOT_NUM   = "__err_COMP_NOT_NUM__"
+let label_err_ARITH_NOT_NUM  = "__err_ARITH_NOT_NUM__"
+let label_err_LOGIC_NOT_BOOL = "__err_LOGIC_NOT_BOOL__"
+let label_err_IF_NOT_BOOL    = "__err_IF_NOT_BOOL__"
+let label_err_OVERFLOW       = "__err_OVERFLOW__"
+
+let func_begin_label name   = sprintf "__%s_func_begin__" name
+let func_setup_label name   = sprintf "__%s_stack_setup_push_loop__" name
+let func_cleanup_label name = sprintf "__%s_stack_cleanup_return__" name
 
 let rec arg_to_const arg =
     match arg with
@@ -451,10 +457,10 @@ let check_num arg label =
           ITest(Reg(EAX), tag_as_bool);
           IJnz(label); ]
 
-let check_logic arg = check_bool arg "err_LOGIC_NOT_BOOL"
-let check_if arg = check_bool arg "err_IF_NOT_BOOL"
-let check_arith arg = check_num arg "err_ARITH_NOT_NUM"
-let check_compare arg = check_num arg "err_COMP_NOT_NUM"
+let check_logic arg = check_bool arg label_err_LOGIC_NOT_BOOL
+let check_if arg = check_bool arg label_err_IF_NOT_BOOL
+let check_arith arg = check_num arg label_err_ARITH_NOT_NUM
+let check_compare arg = check_num arg label_err_COMP_NOT_NUM
 
 let block_true_false label_true label_done = [
     IMov(Reg(EAX), const_false);
@@ -491,8 +497,8 @@ and compile_aexpr e si env num_args is_tail =
 and compile_cexpr e si env num_args is_tail =
     match e with
     | CIf (cnd, thn, els, t) ->
-        let label_false = sprintf "__if_%d_false" t in
-        let label_done = sprintf "__if_%d_done" t in
+        let label_false = sprintf "__if_%d_false__" t in
+        let label_done = sprintf "__if_%d_done__" t in
         let argCond = compile_imm cnd env in
         check_if argCond @ [
             ICmp(Reg(EAX), const_false);
@@ -505,18 +511,18 @@ and compile_cexpr e si env num_args is_tail =
         ]
     | CPrim1(op, e, t) ->
         let arg = compile_imm e env in
-        let label_true = sprintf "__isboolnum_true_%d" t in
-        let label_done = sprintf "__isboolnum_done_%d" t in
+        let label_true = sprintf "__isboolnum_true_%d__" t in
+        let label_done = sprintf "__isboolnum_done_%d__" t in
         (match op with
         | Add1 ->
             check_arith arg @ [
             IAdd(Reg(EAX), Const(1 lsl 1));
-            IJo("err_OVERFLOW");
+            IJo(label_err_OVERFLOW);
         ]
         | Sub1 ->
             check_arith arg @ [
             ISub(Reg(EAX), Const(1 lsl 1));
-            IJo("err_OVERFLOW");
+            IJo(label_err_OVERFLOW);
         ]
         | Print -> [
             IMov(Reg(EAX), arg);
@@ -541,8 +547,8 @@ and compile_cexpr e si env num_args is_tail =
         | PrintStack -> failwith "PrintStack not implemented"
         )
     | CPrim2(op, e1, e2, t) ->
-        let label_true = sprintf "__compare_%d_true" t in
-        let label_done = sprintf "__compare_%d_done" t in
+        let label_true = sprintf "__compare_%d_true__" t in
+        let label_done = sprintf "__compare_%d_done__" t in
         let arg1 = compile_imm e1 env in
         let arg2 = compile_imm e2 env in
         let prelude = match op with
@@ -555,15 +561,15 @@ and compile_cexpr e si env num_args is_tail =
         in prelude @ (match op with
         | Plus -> [
             IAdd(Reg(EAX), arg2);
-            IJo("err_OVERFLOW");
+            IJo(label_err_OVERFLOW);
         ]
         | Minus -> [
             ISub(Reg(EAX), arg2);
-            IJo("err_OVERFLOW");
+            IJo(label_err_OVERFLOW);
         ]
         | Times -> [
             IMul(Reg(EAX), arg2);
-            IJo("err_OVERFLOW");
+            IJo(label_err_OVERFLOW);
             ISar(Reg(EAX), Const(1));
         ]
         | And -> [
@@ -669,19 +675,19 @@ global our_code_starts_here" in
     let postlude = [
         (* Error handling labels *)
         ILineComment("Error handling labels - will not return!");
-        ILabel("err_COMP_NOT_NUM");
+        ILabel(label_err_COMP_NOT_NUM);
         IPush(err_COMP_NOT_NUM);
         ICall("error");
-        ILabel("err_ARITH_NOT_NUM");
+        ILabel(label_err_ARITH_NOT_NUM);
         IPush(err_ARITH_NOT_NUM);
         ICall("error");
-        ILabel("err_LOGIC_NOT_BOOL");
+        ILabel(label_err_LOGIC_NOT_BOOL);
         IPush(err_LOGIC_NOT_BOOL);
         ICall("error");
-        ILabel("err_IF_NOT_BOOL");
+        ILabel(label_err_IF_NOT_BOOL);
         IPush(err_IF_NOT_BOOL);
         ICall("error");
-        ILabel("err_OVERFLOW");
+        ILabel(label_err_OVERFLOW);
         IPush(err_OVERFLOW);
         ICall("error");
     ] in
