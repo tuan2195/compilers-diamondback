@@ -47,16 +47,17 @@ let tests =
   t "m15" "let x = 5, y = 6 in x * y" "30";
   t "m16" "let x = 5, y = 6 in let z = let a = x * y in a in z" "30";
 
-  t "f1" "def f(x,y): (x+y) f(1,2)" "3";
+  t "f1" "def f(x): (x*x) f(16)" "256";
   t "f2" "def f(x,y): (x-y) f(4,1)" "3";
   t "f3" "def f(x,y,z): (x*y+z)
           def g(x,y): (x+y)
           def h(x,y): (2*x+y)
-          f(g(3,4),g(2,2),g(5,6))" "39";
-  t "f4" "def f(x,y,z): (x*y+z)
+          f(g(3,4),g(2,2),h(5,9))" "47";
+  t "f4" "def f(x,y,z,t): (x*y+z*t)
           def g(x,y): (x+y)
           def h(x,y): (2*x+y)
-          f(g(3,4),g(2,2),h(5,9))" "47";
+          def j(x): (x*x)
+          j(f(g(4,4),h(2,2),g(5,5),h(3,3)))" "272484";
   t "f5" "def f(x): (if x==1: x else: 0) f(4)" "0";
   t "f6" "def f(x): (if x==1: x else: 1) f(1)" "1";
   t "f8" "def f(x): (if x==0: 1 else: (x * f(x - 1))) f(6)" "720";
@@ -67,7 +68,6 @@ let tests =
   t "f_tail_2" "def f(x, a): (if x==0: a else: f(x - 1, a + x)) f(99, 0)" "4950";
   t "f_tail_3" "def f(x, a): (if x==1: a else: g(x - 1, a * x))
                 def g(x, a): (if x==1: a+1 else: f(x - 1, a + x)) f(16, 1)" "20643839";
-
 
   te "comp_num_1" "if (5 == true): 5 else: 10" "1";
   te "comp_num_2" "if (5 < true): 5 else: 10" "1";
