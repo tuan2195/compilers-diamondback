@@ -36,11 +36,11 @@ let rec find_dup (l : 'a list) : 'a option =
     | x::xs ->
       if find_one xs x then Some(x) else find_dup xs
 
-let rec find_instance (l : 'a list) (a : 'a) : 'a option =
+let rec find_instance (l : (string * 'a) list) (a : string) =
   match l with
     | [] -> None
     | x::xs ->
-        if a = x then Some(a) else find_instance xs a
+        if a = fst x then Some(x) else find_instance xs a
 
 let rec remove_from_list (l : 'a list) (a : 'a) =
   match l with
@@ -135,11 +135,10 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
     and dup_env env =
         match env with
         | [] -> []
-        | x::xs -> (match find_instance xs x with
+        | x::xs -> (match find_instance xs (fst x) with
             | None -> dup_env xs
             | Some(dup) ->
-                let new_env = remove_from_list xs x in
-                DuplicateId(fst x, snd dup, snd x)::dup_env new_env
+                DuplicateId(fst x, snd dup, snd x)::dup_env xs
         )
     in match p with
     | Program(decls, body, _) ->
