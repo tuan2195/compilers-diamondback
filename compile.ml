@@ -18,24 +18,24 @@ let err_IF_NOT_BOOL    = Sized(DWORD_PTR, HexConst(4))
 let err_OVERFLOW       = Sized(DWORD_PTR, HexConst(5))
 
 (* You may find some of these helpers useful *)
-let rec find_decl (ds : 'a decl list) (name : string) : 'a decl option =
+let rec find_decl ds name =
   match ds with
     | [] -> None
     | (DFun(fname, _, _, _) as d)::ds_rest ->
       if name = fname then Some(d) else find_decl ds_rest name
 
-let rec find_one (l : 'a list) (elt : 'a) : bool =
+let rec find_one l a =
   match l with
     | [] -> false
-    | x::xs -> (elt = x) || (find_one xs elt)
+    | x::xs -> (a = x) || (find_one xs a)
 
-let rec find_dup (l : 'a list) : 'a option =
+let rec find_dup l =
   match l with
     | [] -> None
     | [x] -> None
     | x::xs -> if find_one xs x then Some(x) else find_dup xs
 
-let rec is_anf (e : 'a expr) : bool =
+let rec is_anf e =
   match e with
   | EPrim1(_, e, _) -> is_imm e
   | EPrim2(_, e1, e2, _) -> is_imm e1 && is_imm e2
@@ -50,10 +50,9 @@ and is_imm e =
   | EBool _ -> true
   | EId _ -> true
   | _ -> false
-;;
 
-let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
-    let rec wf_E e decl_list env (* other parameters may be needed here *) =
+let well_formed p =
+    let rec wf_E e decl_list env =
         match e with
         | ELet(bind_list, body, pos) ->
             let shadow_check var =
@@ -138,7 +137,7 @@ let well_formed (p : (Lexing.position * Lexing.position) program) : exn list =
 ;
 
 type tag = int
-let tag (p : 'a program) : tag program =
+let tag p =
   let next = ref 0 in
   let tag () =
     next := !next + 1;
@@ -174,7 +173,7 @@ let tag (p : 'a program) : tag program =
        Program(List.map helpD decls, helpE body, 0)
   in helpP p
 
-let rec untag (p : 'a program) : unit program =
+let rec untag p =
   let rec helpE e =
     match e with
     | EId(x, _) -> EId(x, ())
@@ -200,7 +199,7 @@ let rec untag (p : 'a program) : unit program =
        Program(List.map helpD decls, helpE body, ())
   in helpP p
 
-let atag (p : 'a aprogram) : tag aprogram =
+let atag p =
   let next = ref 0 in
   let tag () =
     next := !next + 1;
@@ -243,7 +242,7 @@ let atag (p : 'a aprogram) : tag aprogram =
   in helpP p
 
 
-let anf (p : tag program) : unit aprogram =
+let anf p =
     let rec helpP (p : tag program) : unit aprogram =
       match p with
       | Program(decls, body, _) -> AProgram(List.map helpD decls, helpA body, ())
@@ -318,14 +317,14 @@ let anf (p : tag program) : unit aprogram =
     helpP p
 ;;
 
-let r_to_asm (r : reg) : string =
+let r_to_asm r =
   match r with
   | EAX -> "eax"
   | EDX -> "edx"
   | ESP -> "esp"
   | EBP -> "ebp"
 
-let rec arg_to_asm (a : arg) : string =
+let rec arg_to_asm a =
   match a with
   | Const(n) -> sprintf "%d" n
   | HexConst(n) -> sprintf "0x%lx" (Int32.of_int n)
@@ -345,7 +344,7 @@ let rec arg_to_asm (a : arg) : string =
          (arg_to_asm a)
 ;;
 
-let rec i_to_asm (i : instruction) : string =
+let rec i_to_asm i =
   match i with
   | IMov(dest, value) ->
      sprintf "  mov %s, %s" (arg_to_asm dest) (arg_to_asm value)
@@ -406,9 +405,6 @@ let rec i_to_asm (i : instruction) : string =
   | IInstrComment(instr, str) ->
      sprintf "%s ; %s" (i_to_asm instr) str
 
-let to_asm (is : instruction list) : string =
-  List.fold_left (fun s i -> sprintf "%s\n%s" s (i_to_asm i)) "" is
-
 let rec find ls x =
   match ls with
   | [] -> failwith (sprintf "Name %s not found" x)
@@ -431,11 +427,12 @@ let rec replicate x i =
   else x :: (replicate x (i - 1))
 
 (* Commonly used macros *)
-let func_begin_label name = sprintf "%s_func_begin" name
-let func_setup_label name = sprintf "%s_stack_setup_push_loop" name
-let func_cleanup_label name = sprintf "%s_stack_cleanup_return" name
+let func_begin_label name = sprintf "__%s_func_begin" name
+let func_setup_label name = sprintf "__%s_stack_setup_push_loop" name
+let func_cleanup_label name = sprintf "__%s_stack_cleanup_return" name
 
-let rec arg_to_const arg = match arg with
+let rec arg_to_const arg =
+    match arg with
     | Const(x) | HexConst(x) -> Some(x)
     | Sized(_, a) -> arg_to_const a
     | _ -> None
@@ -477,7 +474,7 @@ let block_true_false label_true label_done = [
     ILabel(label_done);
 ]
 
-let rec compile_fun (name : string) args env is_tail : instruction list =
+let rec compile_fun name args env is_tail =
     if is_tail then
         [   ILineComment(sprintf "Tail-call to function %s" name) ] @
             List.flatten (List.mapi
@@ -491,7 +488,7 @@ let rec compile_fun (name : string) args env is_tail : instruction list =
                 (List.map (fun a -> compile_imm a env) args) @
         [   ICall(name);
             IAdd(Reg(ESP), Const((List.length args)*word_size)); ]
-and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
+and compile_aexpr e si env num_args is_tail =
     match e with
     | ALet(name, exp, body, _) ->
         let setup = compile_cexpr exp si env num_args false in
@@ -501,21 +498,15 @@ and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
         setup @ [ IMov(arg, Reg(EAX)) ] @ main
     | ACExpr(e) ->
         compile_cexpr e si env num_args true
-and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
+and compile_cexpr e si env num_args is_tail =
     match e with
     | CIf (cnd, thn, els, t) ->
-        let label_false = sprintf "if_%d_false" t in
-        let label_true = sprintf "if_%d_true" t in
-        let label_done = sprintf "if_%d_done" t in
+        let label_false = sprintf "__if_%d_false" t in
+        let label_done = sprintf "__if_%d_done" t in
         let argCond = compile_imm cnd env in
         check_if argCond @ [
-            (*IMov(Reg(EAX), argCond);*)
-            ICmp(Reg(EAX), const_true);
-            IJe(label_true);
             ICmp(Reg(EAX), const_false);
             IJe(label_false);
-            IJmp("err_IF_NOT_BOOL");
-            ILabel(label_true);
         ] @ compile_aexpr thn si env num_args true @ [
             IJmp(label_done);
             ILabel(label_false);
@@ -524,8 +515,8 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         ]
     | CPrim1(op, e, t) ->
         let arg = compile_imm e env in
-        let label_true = sprintf "isboolnum_true_%d" t in
-        let label_done = sprintf "isboolnum_done_%d" t in
+        let label_true = sprintf "__isboolnum_true_%d" t in
+        let label_done = sprintf "__isboolnum_done_%d" t in
         (match op with
         | Add1 ->
             check_arith arg @ [
@@ -560,8 +551,8 @@ and compile_cexpr (e : tag cexpr) si env num_args is_tail : instruction list =
         | PrintStack -> failwith "PrintStack not implemented"
         )
     | CPrim2(op, e1, e2, t) ->
-        let label_true = sprintf "compare_%d_true" t in
-        let label_done = sprintf "compare_%d_done" t in
+        let label_true = sprintf "__compare_%d_true" t in
+        let label_done = sprintf "__compare_%d_done" t in
         let arg1 = compile_imm e1 env in
         let arg2 = compile_imm e2 env in
         let prelude = match op with
@@ -647,7 +638,7 @@ let func_stack_cleanup func_name stack_size = [
     IRet;
 ]
 
-let compile_decl (d : tag adecl) : instruction list =
+let compile_decl d =
     match d with
     | ADFun(func_name, args_list, body, _) ->
     let stack_size = word_size * count_vars body in
@@ -659,7 +650,7 @@ let compile_decl (d : tag adecl) : instruction list =
         compile_aexpr body 1 env (List.length args_list) true @
         func_stack_cleanup func_name stack_size
 
-let rec optimize (ls : instruction list) =
+let rec optimize ls =
     match ls with
     | [] -> []
     | (IMov(RegOffset(o1, r1), Reg(EAX)))::(IMov(Reg(EAX), RegOffset(o2, r2)))::rest ->
@@ -670,7 +661,7 @@ let rec optimize (ls : instruction list) =
     | what::rest ->
         what::optimize rest
 
-let compile_prog (anfed : tag aprogram) =
+let compile_prog anfed =
     match anfed with | AProgram(decls, expr, _) ->
     let func_name = "our_code_starts_here" in
     let stack_size = word_size * (count_vars expr) in
@@ -706,7 +697,7 @@ global our_code_starts_here" in
     let text = to_string (optimize (funcs @ setup @ main @ cleanup @ postlude)) in
     header ^ text
 
-let compile_to_string prog : (exn list, string) either =
+let compile_to_string prog =
   let errors = well_formed prog in
   match errors with
   | [] ->
