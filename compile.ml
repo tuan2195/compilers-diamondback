@@ -485,13 +485,16 @@ let blockTrueFalse label_true label_done = [
 
 let rec compile_fun (name : string) args env is_tail : instruction list =
     if is_tail then
-        let copy_arg i a = [ IMov(Reg(EAX), a); IMov(RegOffset(word_size*(i+2), EBP), Reg(EAX)); ] in
         [   ILineComment(sprintf "Tail-call to function %s" name) ] @
-            List.flatten(List.mapi copy_arg (List.rev_map (fun a -> compile_imm a env) args)) @
+            List.flatten (List.mapi
+                (fun i a -> [ IMov(Reg(EAX), a); IMov(RegOffset(word_size*(i+2), EBP), Reg(EAX)); ])
+                (List.rev_map (fun a -> compile_imm a env) args)) @
         [   IJmp(func_begin_label name) ]
     else
         [   ILineComment(sprintf "Call to function %s" name) ] @
-            List.map (fun a -> IPush(Sized(DWORD_PTR, a))) (List.map (fun a -> compile_imm a env) args) @
+            List.map
+                (fun a -> IPush(Sized(DWORD_PTR, a)))
+                (List.map (fun a -> compile_imm a env) args) @
         [   ICall(name);
             IAdd(Reg(ESP), Const((List.length args)*word_size)); ]
 and compile_aexpr (e : tag aexpr) si env num_args is_tail : instruction list =
